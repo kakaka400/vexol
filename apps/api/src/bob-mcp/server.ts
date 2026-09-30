@@ -1,8 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { PermissionResource } from '../shared/permissions';
+import { HttpError } from '../shared/lib';
+import type { PermissionAction, PermissionResource } from '../shared/permissions';
+import { generateStudioPost, MAX_INSTRUCTION_LENGTH } from '../studio/generate';
+import { postDto } from '../studio/dto';
+import { listStudioPosts, listStudioTemplates } from '../studio/store';
 import type { BobContext } from './identity';
-import { requireBobRead } from './identity';
+import { requireBob, requireBobRead } from './identity';
 import { logBobFailure } from './log';
 import { sanitizeErrorCode } from './security';
 import {
@@ -58,11 +62,11 @@ function safeMessage(code: string): string {
 
 export function buildBobMcpServer(context: BobContext, audit: BobRequestAudit): McpServer {
   const server = new McpServer(
-    { name: 'vexol-bob-readonly', title: 'Vexol Bob Read-only', version: '1.0.0' },
+    { name: 'vexol-bob', title: 'Vexol Bob', version: '1.1.0' },
     {
       capabilities: { tools: {} },
       instructions:
-        'Read-only access to the configured Vexol project. Never claim that a tool changed data.',
+        'Access to the configured Vexol project. create_studio_post is the only tool that changes data: it generates a new image from a Studio template. Every other tool only reads; never claim that one changed data.',
     },
   );
 
@@ -70,10 +74,11 @@ export function buildBobMcpServer(context: BobContext, audit: BobRequestAudit): 
     resource: PermissionResource,
     resourceId: string | null,
     operation: () => Promise<Record<string, unknown>> | Record<string, unknown>,
+    action: PermissionAction = 'read',
   ) {
     audit.resourceId = resourceId;
     try {
-      requireBobRead(context, resource);
+      requireBob(context, resource, action);
       const result = await operation();
       audit.resultStatus = 'success';
       audit.recordCount = recordCount(result);
@@ -82,6 +87,13 @@ export function buildBobMcpServer(context: BobContext, audit: BobRequestAudit): 
         structuredContent: result,
       };
     } catch (error) {
+      // A 4xx HttpError carries a message written for the caller ("Template 3 has
+      // no photo yet"), which an agent needs to correct its request.
+      if (error instanceof HttpError && error.status < 500) {
+        audit.resultStatus = 'error';
+        audit.errorCode = 'invalid_request';
+        return { content: [{ type: 'text' as const, text: error.message }], isError: true };
+      }
       const code = sanitizeErrorCode(error);
       audit.resultStatus = code === 'forbidden' || code === 'not_found' ? 'denied' : 'error';
       audit.errorCode = code;
@@ -298,6 +310,82 @@ export function buildBobMcpServer(context: BobContext, audit: BobRequestAudit): 
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     (input) => run('dashboards', null, () => listScopedAgentRuns(context, input)),
+  );
+
+  server.registerTool(
+    'list_studio_templates',
+    {
+      description:
+        'List the six Studio templates. Each is a photo that create_studio_post edits; the description says what the template is meant for. A template without a photo cannot be used yet.',
+      outputSchema: { items: z.array(genericItem).max(6) },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    () =>
+      run('studio', null, async () => ({
+        items: (await listStudioTemplates(context.project.id)).map((template) => ({
+          slot: template.slot,
+          name: template.name,
+          description: template.description,
+          hasPhoto: template.photoId != null,
+        })),
+      })),
+  );
+
+  server.registerTool(
+    'list_studio_posts',
+    {
+      description:
+        'List the images generated from the Studio templates, newest first, with a public image URL for each.',
+      inputSchema: { limit: z.number().int().min(1).max(PAGE_SIZE).default(10) },
+      outputSchema: { items: z.array(genericItem).max(PAGE_SIZE) },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    (input) =>
+      run('studio', null, async () => ({
+        items: (await listStudioPosts(context.project.id, input.limit)).map(postDto),
+      })),
+  );
+
+  server.registerTool(
+    'create_studio_post',
+    {
+      description:
+        'Generate a new image by editing the photo of one Studio template with an instruction, for example the text to put on it or what to change. The template keeps its layout and style. Returns the new image with a public URL that can be sent to a chat. Takes up to two minutes.',
+      inputSchema: {
+        slot: z.number().int().min(1).max(6),
+        instruction: z.string().trim().min(1).max(MAX_INSTRUCTION_LENGTH),
+      },
+      outputSchema: {
+        id: z.string(),
+        slot: z.number().int(),
+        templateName: z.string(),
+        instruction: z.string(),
+        imageUrl: z.string().nullable(),
+        createdByName: z.string().nullable(),
+        createdAt: z.string(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    (input) =>
+      run(
+        'studio',
+        `slot:${input.slot}`,
+        async () =>
+          postDto(
+            await generateStudioPost({
+              projectId: context.project.id,
+              slot: input.slot,
+              instruction: input.instruction,
+              userId: context.userId,
+            }),
+          ),
+        'create',
+      ),
   );
 
   return server;

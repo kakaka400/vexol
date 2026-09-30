@@ -5,7 +5,7 @@ import type { HermesConversation } from '@/lib/api';
 import { useArchiveHermesConversation } from '@/services/aiAgents.service';
 import { Skeleton } from '@/components/ui/skeleton';
 import ConfirmDialog from '@/components/common/overlay/ConfirmDialog';
-import { AiChatThreadItem } from '../shared/AiChatThreadItem';
+import { AiChatThreadItem } from './AiChatThreadItem';
 
 export function HermesConversationList({
   projectKey,

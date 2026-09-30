@@ -1,66 +1,112 @@
-import { callOpenRouter, chatCompletionText } from '../integrations/openrouter';
-import { getCredentialSecret } from '../integrations/store';
+import { callOpenRouter, projectOpenRouterKey } from '../integrations/openrouter';
+import { createProjectFile, deleteProjectFileById } from '../files/store';
 import { HttpError } from '../shared/lib';
-import type { StudioTemplateRow } from './store';
+import { getObject } from '../shared/s3';
+import {
+  assertUploadAllowed,
+  discardUploadedObject,
+  storeUploadedObject,
+  uploadObjectKey,
+} from '../shared/uploads';
+import { createStudioPost, studioTemplateSource, type StudioPostRow } from './store';
 
+// Verified against the OpenRouter catalogue: it takes an image as input and
+// returns one.
+const IMAGE_MODEL = 'google/gemini-3.1-flash-image';
 const REQUEST_TIMEOUT_MS = 120_000;
+export const MAX_INSTRUCTION_LENGTH = 2_000;
 
-// The aspect ratios the layouts are drawn at, in the form OpenRouter's image API
-// takes. Keep in sync with the canvas sizes the web renderer uses.
-const ASPECT_RATIOS: Record<string, string> = {
-  square: '1:1',
-  portrait: '4:5',
-  story: '9:16',
+// The only image types Studio stores. A generated post is served on a public
+// route, so its type must be one a browser renders as an image and nothing else.
+export const STUDIO_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+
+export const TEMPLATE_FOLDER = 'Studio templates';
+const POST_FOLDER = 'Studio';
+
+const EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
 };
 
-export interface GeneratedImage {
+export function isStudioImageType(value: string): boolean {
+  return (STUDIO_IMAGE_TYPES as readonly string[]).includes(value);
+}
+
+export function studioExtension(contentType: string): string {
+  return EXTENSIONS[contentType] ?? 'png';
+}
+
+// Stores bytes as an ordinary vault file, so everything Studio holds is also
+// visible in Files. Returns the file row id.
+export async function storeStudioFile(input: {
+  projectId: number;
+  userId: string | null;
+  folder: string;
+  filename: string;
   bytes: Buffer;
   contentType: string;
-}
-
-export interface GeneratedCopy {
-  lead: string;
-  headline: string;
-  subtext: string;
-  caption: string;
-  imagePrompt: string;
-}
-
-// The API key behind a template's credential. The credential must belong to the
-// template's own project and be an OpenRouter one — the calls below speak only that
-// API.
-async function apiKeyFor(template: StudioTemplateRow): Promise<string> {
-  if (template.credentialId == null) {
-    throw new HttpError(400, 'This template has no OpenRouter credential set');
+}): Promise<number> {
+  const key = uploadObjectKey(input.projectId, 'files', input.filename);
+  await storeUploadedObject(key, input.bytes, input.contentType);
+  try {
+    const file = await createProjectFile({
+      projectId: input.projectId,
+      uploadedByUserId: input.userId,
+      s3Key: key,
+      filename: input.filename,
+      contentType: input.contentType,
+      sizeBytes: input.bytes.length,
+      folder: input.folder,
+    });
+    return file.id;
+  } catch (error) {
+    await discardUploadedObject(key);
+    throw error;
   }
-  const secret = await getCredentialSecret(template.credentialId, template.projectId);
-  if (!secret) throw new HttpError(400, "The template's credential no longer exists");
-  if (secret.integrationKey !== 'openrouter') {
-    throw new HttpError(400, 'Studio needs an OpenRouter credential');
-  }
-  const key = String(secret.config.apiKey ?? '');
-  if (!key) throw new HttpError(400, "The template's credential has no API key");
-  return key;
 }
 
-// The full image prompt: the template's style prompt first, so every post on one
-// template asks for the same look, then what this post is about.
-export function composeImagePrompt(template: StudioTemplateRow, prompt: string): string {
-  return [template.stylePrompt.trim(), prompt.trim()].filter(Boolean).join('\n\n');
+export async function discardStudioFile(fileId: number | null): Promise<void> {
+  if (fileId == null) return;
+  const key = await deleteProjectFileById(fileId);
+  if (key) await discardUploadedObject(key);
 }
 
-export async function generateImage(
-  template: StudioTemplateRow,
-  prompt: string,
-): Promise<GeneratedImage> {
-  const apiKey = await apiKeyFor(template);
+async function readObject(key: string): Promise<Buffer> {
+  const { body } = await getObject(key);
+  return Buffer.from(await new Response(body).arrayBuffer());
+}
+
+// The instruction is framed so the model edits the template rather than
+// inventing a new picture: the template is the design, the instruction the change.
+function editPrompt(instruction: string): string {
+  return [
+    'Edit the provided template image.',
+    'Keep its layout, composition, typography style, colours and branding.',
+    'Change only what the instruction below asks for.',
+    '',
+    `Instruction: ${instruction}`,
+  ].join('\n');
+}
+
+async function editPhoto(
+  apiKey: string,
+  photo: Buffer,
+  photoType: string,
+  instruction: string,
+): Promise<{ bytes: Buffer; contentType: string }> {
   const payload = (await callOpenRouter(
     '/images',
     apiKey,
     {
-      model: template.imageModel,
-      prompt: composeImagePrompt(template, prompt),
-      aspect_ratio: ASPECT_RATIOS[template.aspect] ?? '1:1',
+      model: IMAGE_MODEL,
+      prompt: editPrompt(instruction),
+      input_references: [
+        {
+          type: 'image_url',
+          image_url: { url: `data:${photoType};base64,${photo.toString('base64')}` },
+        },
+      ],
       n: 1,
     },
     REQUEST_TIMEOUT_MS,
@@ -68,62 +114,59 @@ export async function generateImage(
 
   const first = payload.data?.[0];
   if (!first?.b64_json) throw new HttpError(502, 'OpenRouter returned no image');
-  return {
-    bytes: Buffer.from(first.b64_json, 'base64'),
-    contentType: first.media_type ?? 'image/png',
-  };
+  const contentType = first.media_type ?? 'image/png';
+  if (!isStudioImageType(contentType)) {
+    throw new HttpError(502, `OpenRouter returned an unsupported image type: ${contentType}`);
+  }
+  return { bytes: Buffer.from(first.b64_json, 'base64'), contentType };
 }
 
-const COPY_INSTRUCTIONS = [
-  'You write social media posts. Answer with a JSON object and nothing else, with the keys:',
-  '"lead" (max 40 characters, the quieter opening line set above the headline, often a',
-  'short framing phrase such as "Your Rules. Your Money." — may be empty),',
-  '"headline" (max 50 characters, the statement the post makes, set below the lead),',
-  '"subtext" (max 120 characters, the supporting line),',
-  '"caption" (max 400 characters, the text posted alongside the image),',
-  '"imagePrompt" (a description of the photo to generate; describe only the subject and',
-  'the scene, never text, logos or layout, because those are drawn by the template).',
-  'Write short, plain, declarative sentences. No exclamation marks, no emoji, no hashtags.',
-].join(' ');
-
-export async function generateCopy(
-  template: StudioTemplateRow,
-  topic: string,
-): Promise<GeneratedCopy> {
-  if (!template.textModel) {
-    throw new HttpError(400, 'This template has no text model set');
+// Edits the photo of one template slot with an instruction, stores the result in
+// the vault and records it as a post.
+export async function generateStudioPost(input: {
+  projectId: number;
+  slot: number;
+  instruction: string;
+  userId: string | null;
+}): Promise<StudioPostRow> {
+  const instruction = input.instruction.trim();
+  if (!instruction) throw new HttpError(400, 'The instruction is empty');
+  if (instruction.length > MAX_INSTRUCTION_LENGTH) {
+    throw new HttpError(400, `The instruction is longer than ${MAX_INSTRUCTION_LENGTH} characters`);
   }
-  const apiKey = await apiKeyFor(template);
-  const style = template.stylePrompt.trim();
-  const content = await chatCompletionText(
+
+  const template = await studioTemplateSource(input.projectId, input.slot);
+  if (!template?.photoKey || !template.photoType) {
+    throw new HttpError(400, `Template ${input.slot} has no photo yet`);
+  }
+
+  const apiKey = await projectOpenRouterKey(input.projectId);
+  const image = await editPhoto(
     apiKey,
-    {
-      model: template.textModel,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: COPY_INSTRUCTIONS },
-        {
-          role: 'user',
-          content: [style ? `Brand style: ${style}` : '', `Post topic: ${topic}`]
-            .filter(Boolean)
-            .join('\n'),
-        },
-      ],
-    },
-    REQUEST_TIMEOUT_MS,
+    await readObject(template.photoKey),
+    template.photoType,
+    instruction,
   );
+  await assertUploadAllowed(input.projectId, image.bytes.length, image.contentType);
 
-  let parsed: Partial<GeneratedCopy>;
+  const fileId = await storeStudioFile({
+    projectId: input.projectId,
+    userId: input.userId,
+    folder: POST_FOLDER,
+    filename: `template-${input.slot}-${Date.now()}.${studioExtension(image.contentType)}`,
+    bytes: image.bytes,
+    contentType: image.contentType,
+  });
   try {
-    parsed = JSON.parse(content) as Partial<GeneratedCopy>;
-  } catch {
-    throw new HttpError(502, 'OpenRouter returned text that is not valid JSON');
+    return await createStudioPost({
+      projectId: input.projectId,
+      templateId: template.id,
+      instruction,
+      imageFileId: fileId,
+      createdByUserId: input.userId,
+    });
+  } catch (error) {
+    await discardStudioFile(fileId);
+    throw error;
   }
-  return {
-    lead: String(parsed.lead ?? ''),
-    headline: String(parsed.headline ?? ''),
-    subtext: String(parsed.subtext ?? ''),
-    caption: String(parsed.caption ?? ''),
-    imagePrompt: String(parsed.imagePrompt ?? ''),
-  };
 }

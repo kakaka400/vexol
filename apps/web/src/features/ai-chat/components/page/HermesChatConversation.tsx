@@ -4,8 +4,8 @@ import { Bot } from 'lucide-react';
 import type { AiAgent } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { AgentChatPanel } from '@/components/common/agent-chat/AgentChatPanel';
-import { AiChatThreadSkeleton } from '../shared/AiChatThreadSkeleton';
-import { useHermesChat } from '../../hooks/useHermesChat';
+import { AiChatThreadSkeleton } from '@/components/common/agent-chat/AiChatThreadSkeleton';
+import { useHermesChat } from '@/hooks/useHermesChat';
 
 export function HermesChatConversation({
   projectKey,

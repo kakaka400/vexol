@@ -9,6 +9,7 @@ import {
   type AnyPgColumn,
   date,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -1866,53 +1867,34 @@ export const commandCenterSnooze = pgTable(
   ],
 );
 
-// A post template: the design every post built on it is rendered with. The layout
-// itself is code (the browser draws the post on a canvas from these values), which
-// is what keeps two posts on one template identical in composition. The template
-// only carries what that drawing code reads, plus the models and the style prompt
-// used to fill it.
+// One of the six fixed Studio templates of a project. A template is a photo the
+// image model edits: every post starts from this photo and the instruction it is
+// given. The row is created the first time a slot is filled; an absent row is an
+// empty slot. The description tells an agent what the template is meant for.
 export const studioTemplate = pgTable(
   'studio_template',
   {
     id: serial('id').primaryKey(),
-    publicId: uuid('public_id').notNull().defaultRandom().unique(),
     projectId: integer('project_id')
       .notNull()
       .references(() => project.id, { onDelete: 'cascade' }),
-    name: text('name').notNull(),
-    layout: text('layout').notNull().default('statement'),
-    aspect: text('aspect').notNull().default('square'),
-    backgroundColor: text('background_color').notNull().default('#000000'),
-    textColor: text('text_color').notNull().default('#ffffff'),
-    accentColor: text('accent_color').notNull().default('#9ca3af'),
-    fontFamily: text('font_family').notNull().default('Inter'),
-    // Prepended to every image prompt of a post on this template, so the generated
-    // photos share one look across posts.
-    stylePrompt: text('style_prompt').notNull().default(''),
-    // The OpenRouter credential the generation calls are billed to, and the model
-    // ids they address. An empty text model means captions are not generated.
-    credentialId: integer('credential_id').references(() => integrationCredential.id, {
+    slot: integer('slot').notNull(),
+    name: text('name').notNull().default(''),
+    description: text('description').notNull().default(''),
+    photoFileId: integer('photo_file_id').references(() => projectFile.id, {
       onDelete: 'set null',
     }),
-    imageModel: text('image_model').notNull().default('google/gemini-3.1-flash-image'),
-    textModel: text('text_model').notNull().default(''),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    unique('studio_template_project_name_unique').on(t.projectId, t.name),
-    index('studio_template_project_idx').on(t.projectId, t.name),
-    check(
-      'studio_template_layout_check',
-      sql`${t.layout} IN ('statement', 'feature', 'announcement', 'overlay')`,
-    ),
-    check('studio_template_aspect_check', sql`${t.aspect} IN ('square', 'portrait', 'story')`),
+    unique('studio_template_project_slot_unique').on(t.projectId, t.slot),
+    check('studio_template_slot_check', sql`${t.slot} BETWEEN 1 AND 6`),
   ],
 );
 
-// One post. The text fields are what the template's layout draws; the two file
-// references are the generated photo and the finished post image, both ordinary
-// vault files inside the post's own folder.
+// One photo the image model produced from a template and an instruction. The
+// public id is also the address of the image on the public image route, which is
+// what lets a chat client such as Telegram fetch it.
 export const studioPost = pgTable(
   'studio_post',
   {
@@ -1921,43 +1903,121 @@ export const studioPost = pgTable(
     projectId: integer('project_id')
       .notNull()
       .references(() => project.id, { onDelete: 'cascade' }),
-    // A template in use cannot be deleted, so an existing post can always be
-    // re-rendered with the design it was built on.
     templateId: integer('template_id')
       .notNull()
-      .references(() => studioTemplate.id, { onDelete: 'restrict' }),
+      .references(() => studioTemplate.id, { onDelete: 'cascade' }),
+    instruction: text('instruction').notNull(),
+    imageFileId: integer('image_file_id').references(() => projectFile.id, {
+      onDelete: 'set null',
+    }),
     createdByUserId: text('created_by_user_id').references(() => user.id, {
       onDelete: 'set null',
     }),
-    title: text('title').notNull(),
-    // What the user asked for, kept as the input the text generation re-runs from.
-    topic: text('topic').notNull().default(''),
-    // The quieter line drawn above the headline in the accent colour. Every layout
-    // reads the same three text fields; what each one does with them differs.
-    leadLine: text('lead_line').notNull().default(''),
-    headline: text('headline').notNull().default(''),
-    subtext: text('subtext').notNull().default(''),
-    // The pill labels the feature layout draws under the headline.
-    chips: jsonb('chips').$type<string[]>().notNull().default([]),
-    // The text in the pill button the announcement layout draws at the bottom.
-    ctaLabel: text('cta_label').notNull().default(''),
-    caption: text('caption').notNull().default(''),
-    imagePrompt: text('image_prompt').notNull().default(''),
-    // The vault folder holding this post's files.
-    folder: text('folder').notNull(),
-    sourceImageFileId: integer('source_image_file_id').references(() => projectFile.id, {
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('studio_post_project_idx').on(t.projectId, t.createdAt)],
+);
+
+// A social media post that goes through human review before it can be scheduled.
+// Its content is stored in immutable versions; the draft carries the state of the
+// current version: draft -> review_requested -> approved | rejected -> scheduled.
+// A new version resets the state to draft, so an approval covers one exact version.
+export const studioDraft = pgTable(
+  'studio_draft',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    conversationId: uuid('conversation_id').references(() => hermesConversation.id, {
       onDelete: 'set null',
     }),
-    renderedFileId: integer('rendered_file_id').references(() => projectFile.id, {
-      onDelete: 'set null',
-    }),
+    platform: text('platform').notNull().default('instagram'),
     status: text('status').notNull().default('draft'),
+    currentVersion: integer('current_version').notNull().default(1),
+    idempotencyKey: uuid('idempotency_key').notNull(),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('studio_post_project_idx').on(t.projectId, t.createdAt),
-    check('studio_post_status_check', sql`${t.status} IN ('draft', 'ready')`),
+    unique('studio_draft_idempotency_unique').on(t.projectId, t.idempotencyKey),
+    check('studio_draft_platform_check', sql`${t.platform} IN ('instagram')`),
+    check(
+      'studio_draft_status_check',
+      sql`${t.status} IN ('draft', 'review_requested', 'approved', 'rejected', 'scheduled')`,
+    ),
+    index('studio_draft_project_idx').on(t.projectId, t.updatedAt.desc()),
+  ],
+);
+
+// The image reference does not cascade: deleting a Studio image must not change a
+// version that may already be approved. It is NO ACTION rather than RESTRICT so
+// the check runs after a project delete has cascaded to the versions too.
+export const studioDraftVersion = pgTable(
+  'studio_draft_version',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => studioDraft.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    caption: text('caption').notNull(),
+    templateSlot: integer('template_slot'),
+    postId: integer('post_id').references(() => studioPost.id, { onDelete: 'no action' }),
+    contentHash: text('content_hash').notNull(),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('studio_draft_version_unique').on(t.draftId, t.version),
+    check('studio_draft_version_slot_check', sql`${t.templateSlot} BETWEEN 1 AND 6`),
+  ],
+);
+
+// One human decision on one version. (id, decision) is unique so a schedule can
+// reference an approved review by a composite foreign key.
+export const studioReview = pgTable(
+  'studio_review',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id')
+      .notNull()
+      .unique()
+      .references(() => studioDraftVersion.id, { onDelete: 'cascade' }),
+    decision: text('decision').notNull(),
+    reason: text('reason'),
+    decidedBy: text('decided_by').references(() => user.id, { onDelete: 'set null' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('studio_review_id_decision_unique').on(t.id, t.decision),
+    check('studio_review_decision_check', sql`${t.decision} IN ('approved', 'rejected')`),
+    check('studio_review_reason_check', sql`${t.decision} = 'approved' OR ${t.reason} IS NOT NULL`),
+  ],
+);
+
+// A planned publication of an approved version. Nothing publishes it yet. The
+// composite foreign key makes the database refuse a schedule for a review that
+// is not an approval.
+export const studioSchedule = pgTable(
+  'studio_schedule',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reviewId: uuid('review_id').notNull().unique(),
+    reviewDecision: text('review_decision').notNull().default('approved'),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }).notNull(),
+    timezone: text('timezone').notNull(),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('studio_schedule_approved_check', sql`${t.reviewDecision} = 'approved'`),
+    foreignKey({
+      name: 'studio_schedule_review_fk',
+      columns: [t.reviewId, t.reviewDecision],
+      foreignColumns: [studioReview.id, studioReview.decision],
+    }).onDelete('cascade'),
   ],
 );
 

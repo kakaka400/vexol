@@ -2864,88 +2864,92 @@ export function serverTerminalUrl(serverId: number, cols: number, rows: number):
   return `${base}/servers/${serverId}/terminal?cols=${cols}&rows=${rows}`;
 }
 
-export type StudioLayout = 'statement' | 'feature' | 'announcement' | 'overlay';
-export type StudioAspect = 'square' | 'portrait' | 'story';
-
+// One of the six fixed template slots. An empty slot has no photo yet.
 export interface StudioTemplate {
-  id: string;
+  slot: number;
   name: string;
-  layout: StudioLayout;
-  aspect: StudioAspect;
-  backgroundColor: string;
-  textColor: string;
-  accentColor: string;
-  fontFamily: string;
-  stylePrompt: string;
-  credentialId: number | null;
-  imageModel: string;
-  textModel: string;
-  createdAt: string;
-  updatedAt: string;
+  description: string;
+  photoId: string | null;
+  updatedAt: string | null;
 }
 
-export type StudioTemplateInput = Omit<StudioTemplate, 'id' | 'createdAt' | 'updatedAt'>;
-export type StudioTemplatePatch = Partial<StudioTemplateInput>;
+export interface StudioTemplatePatch {
+  name?: string;
+  description?: string;
+}
 
+// A photo the image model made from a template. imageUrl is public, so it can be
+// used directly in an <img>.
 export interface StudioPost {
   id: string;
-  templateId: string;
+  slot: number;
   templateName: string;
+  instruction: string;
+  imageUrl: string | null;
   createdByName: string | null;
-  title: string;
-  topic: string;
-  lead: string;
-  headline: string;
-  subtext: string;
-  chips: string[];
-  ctaLabel: string;
+  createdAt: string;
+}
+
+export type StudioDraftStatus =
+  'draft' | 'review_requested' | 'approved' | 'rejected' | 'scheduled';
+
+export interface StudioDraftContent {
   caption: string;
-  imagePrompt: string;
-  folder: string;
-  sourceImageId: string | null;
-  renderedImageId: string | null;
-  status: 'draft' | 'ready';
+  templateSlot?: number | null;
+  postId?: string | null;
+}
+
+export interface StudioDraft {
+  id: string;
+  platform: 'instagram';
+  status: StudioDraftStatus;
+  currentVersion: number;
+  caption: string;
+  templateSlot: number | null;
+  imageUrl: string | null;
+  createdByName: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface StudioPostInput {
-  templateId: string;
-  title: string;
-  topic?: string;
+export interface StudioDraftDetail extends StudioDraft {
+  conversationId: string | null;
+  versions: Array<{
+    version: number;
+    caption: string;
+    templateSlot: number | null;
+    postId: string | null;
+    imageUrl: string | null;
+    contentHash: string;
+    createdByName: string | null;
+    createdAt: string;
+    review: {
+      decision: 'approved' | 'rejected';
+      reason: string | null;
+      decidedByName: string | null;
+      decidedAt: string;
+    } | null;
+  }>;
+  schedule: {
+    version: number;
+    scheduledFor: string;
+    timezone: string;
+    createdByName: string | null;
+    createdAt: string;
+  } | null;
 }
 
-export type StudioPostPatch = Partial<
-  Pick<
-    StudioPost,
-    | 'title'
-    | 'topic'
-    | 'lead'
-    | 'headline'
-    | 'subtext'
-    | 'chips'
-    | 'ctaLabel'
-    | 'caption'
-    | 'imagePrompt'
-    | 'status'
-  >
->;
-
-export interface StudioModels {
-  image: { id: string; name: string }[];
-  text: { id: string; name: string }[];
-}
-
-// The rendered post image is drawn in the browser and posted back as a file, the
-// same way an upload is sent.
-async function sendRenderedPost(postId: string, blob: Blob): Promise<StudioPost> {
+async function sendTemplatePhoto(
+  projectKey: string,
+  slot: number,
+  file: File,
+): Promise<StudioTemplate> {
   const form = new FormData();
-  form.append('file', new File([blob], 'post.png', { type: 'image/png' }));
-  const res = await fetch(`${API_URL}/studio/posts/${encodeURIComponent(postId)}/rendered`, {
-    method: 'POST',
-    credentials: 'include',
-    body: form,
-  });
+  form.append('file', file);
+  const res = await fetch(
+    `${API_URL}/projects/${encodeURIComponent(projectKey)}/studio/templates/${slot}/photo`,
+    { method: 'POST', credentials: 'include', body: form },
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(res.status, body?.error ?? `${res.status} ${res.statusText}`);
@@ -3539,39 +3543,41 @@ export const api = {
     ).then((res) => res.data.url),
   listStudioTemplates: (projectKey: string) =>
     request<StudioTemplate[]>(`/projects/${encodeURIComponent(projectKey)}/studio/templates`),
-  createStudioTemplate: (projectKey: string, input: StudioTemplateInput) =>
-    request<StudioTemplate>(`/projects/${encodeURIComponent(projectKey)}/studio/templates`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-  updateStudioTemplate: (templateId: string, patch: StudioTemplatePatch) =>
-    request<StudioTemplate>(`/studio/templates/${encodeURIComponent(templateId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-    }),
-  deleteStudioTemplate: (templateId: string) =>
-    request<void>(`/studio/templates/${encodeURIComponent(templateId)}`, { method: 'DELETE' }),
+  updateStudioTemplate: (projectKey: string, slot: number, patch: StudioTemplatePatch) =>
+    request<StudioTemplate>(
+      `/projects/${encodeURIComponent(projectKey)}/studio/templates/${slot}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+  uploadStudioTemplatePhoto: (projectKey: string, slot: number, file: File) =>
+    sendTemplatePhoto(projectKey, slot, file),
   listStudioPosts: (projectKey: string) =>
     request<StudioPost[]>(`/projects/${encodeURIComponent(projectKey)}/studio/posts`),
-  createStudioPost: (projectKey: string, input: StudioPostInput) =>
-    request<StudioPost>(`/projects/${encodeURIComponent(projectKey)}/studio/posts`, {
+  deleteStudioPost: (postId: string) =>
+    request<void>(`/studio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }),
+  listStudioDrafts: (projectKey: string) =>
+    request<StudioDraft[]>(`/projects/${encodeURIComponent(projectKey)}/studio/drafts`),
+  getStudioDraft: (projectKey: string, draftId: string) =>
+    request<StudioDraftDetail>(
+      `/projects/${encodeURIComponent(projectKey)}/studio/drafts/${encodeURIComponent(draftId)}`,
+    ),
+  createStudioDraft: (
+    projectKey: string,
+    input: StudioDraftContent & { conversationId?: string | null; idempotencyKey: string },
+  ) =>
+    request<StudioDraftDetail>(`/projects/${encodeURIComponent(projectKey)}/studio/drafts`, {
       method: 'POST',
       body: JSON.stringify(input),
     }),
-  updateStudioPost: (postId: string, patch: StudioPostPatch) =>
-    request<StudioPost>(`/studio/posts/${encodeURIComponent(postId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-    }),
-  deleteStudioPost: (postId: string) =>
-    request<void>(`/studio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }),
-  generateStudioCopy: (postId: string) =>
-    request<StudioPost>(`/studio/posts/${encodeURIComponent(postId)}/copy`, { method: 'POST' }),
-  generateStudioImage: (postId: string) =>
-    request<StudioPost>(`/studio/posts/${encodeURIComponent(postId)}/image`, { method: 'POST' }),
-  storeRenderedStudioPost: (postId: string, blob: Blob) => sendRenderedPost(postId, blob),
-  listStudioModels: (projectKey: string) =>
-    request<StudioModels>(`/projects/${encodeURIComponent(projectKey)}/studio/models`),
+  studioDraftAction: (
+    projectKey: string,
+    draftId: string,
+    action: 'versions' | 'request-review' | 'review' | 'schedule',
+    body: Record<string, unknown>,
+  ) =>
+    request<StudioDraftDetail>(
+      `/projects/${encodeURIComponent(projectKey)}/studio/drafts/${encodeURIComponent(draftId)}/${action}`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
   getServerOverview: (projectKey: string) =>
     request<ServerOverview>(`/projects/${encodeURIComponent(projectKey)}/servers/overview`),
   listServers: (projectKey: string) =>

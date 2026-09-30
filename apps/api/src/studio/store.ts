@@ -1,167 +1,134 @@
 import { db, projectFile, studioPost, studioTemplate, user } from '@repo/db';
-import { aliasedTable, and, desc, eq, getTableColumns } from 'drizzle-orm';
-import { iso } from '../shared/lib';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { HttpError, iso, pgErrorCode } from '../shared/lib';
+
+export const TEMPLATE_SLOTS = [1, 2, 3, 4, 5, 6] as const;
 
 export interface StudioTemplateRow {
-  id: number;
-  publicId: string;
-  projectId: number;
+  slot: number;
   name: string;
-  layout: string;
-  aspect: string;
-  backgroundColor: string;
-  textColor: string;
-  accentColor: string;
-  fontFamily: string;
-  stylePrompt: string;
-  credentialId: number | null;
-  imageModel: string;
-  textModel: string;
-  createdAt: string;
-  updatedAt: string;
+  description: string;
+  photoId: string | null;
+  updatedAt: string | null;
 }
 
 export interface StudioPostRow {
-  id: number;
   publicId: string;
   projectId: number;
-  templateId: number;
-  templatePublicId: string;
+  slot: number;
   templateName: string;
+  instruction: string;
+  imageId: string | null;
   createdByName: string | null;
-  title: string;
-  topic: string;
-  leadLine: string;
-  headline: string;
-  subtext: string;
-  chips: string[];
-  ctaLabel: string;
-  caption: string;
-  imagePrompt: string;
-  folder: string;
-  sourceImageId: string | null;
-  renderedImageId: string | null;
-  status: string;
   createdAt: string;
-  updatedAt: string;
 }
 
-function mapTemplate(row: typeof studioTemplate.$inferSelect): StudioTemplateRow {
-  return { ...row, createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt) };
+// All six slots, in order. A slot without a row is empty.
+export async function listStudioTemplates(projectId: number): Promise<StudioTemplateRow[]> {
+  const rows = await db
+    .select({
+      slot: studioTemplate.slot,
+      name: studioTemplate.name,
+      description: studioTemplate.description,
+      photoId: projectFile.publicId,
+      updatedAt: studioTemplate.updatedAt,
+    })
+    .from(studioTemplate)
+    .leftJoin(projectFile, eq(projectFile.id, studioTemplate.photoFileId))
+    .where(eq(studioTemplate.projectId, projectId));
+  const bySlot = new Map(rows.map((row) => [row.slot, row]));
+  return TEMPLATE_SLOTS.map((slot) => {
+    const row = bySlot.get(slot);
+    return {
+      slot,
+      name: row?.name ?? '',
+      description: row?.description ?? '',
+      photoId: row?.photoId ?? null,
+      updatedAt: row ? iso(row.updatedAt) : null,
+    };
+  });
 }
 
-const sourceFile = aliasedTable(projectFile, 'source_file');
-const renderedFile = aliasedTable(projectFile, 'rendered_file');
+export async function getStudioTemplate(
+  projectId: number,
+  slot: number,
+): Promise<StudioTemplateRow | null> {
+  return (await listStudioTemplates(projectId)).find((row) => row.slot === slot) ?? null;
+}
 
-const postSelection = {
-  ...getTableColumns(studioPost),
-  templatePublicId: studioTemplate.publicId,
-  templateName: studioTemplate.name,
-  createdByName: user.name,
-  sourceImageId: sourceFile.publicId,
-  renderedImageId: renderedFile.publicId,
-};
+// Creates the slot's row on first use, so an empty slot needs no row.
+export async function saveStudioTemplate(
+  projectId: number,
+  slot: number,
+  patch: { name?: string; description?: string; photoFileId?: number },
+): Promise<void> {
+  await db
+    .insert(studioTemplate)
+    .values({ projectId, slot, ...patch })
+    .onConflictDoUpdate({
+      target: [studioTemplate.projectId, studioTemplate.slot],
+      set: { ...patch, updatedAt: sql`now()` },
+    });
+}
 
-type PostSelect = typeof studioPost.$inferSelect & {
-  templatePublicId: string;
-  templateName: string;
-  createdByName: string | null;
-  sourceImageId: string | null;
-  renderedImageId: string | null;
-};
-
-function mapPost(row: PostSelect): StudioPostRow {
-  return {
-    ...row,
-    createdAt: iso(row.createdAt),
-    updatedAt: iso(row.updatedAt),
-  };
+// What generation needs from a slot: its row id and where its photo is stored.
+export async function studioTemplateSource(
+  projectId: number,
+  slot: number,
+): Promise<{
+  id: number;
+  name: string;
+  photoFileId: number | null;
+  photoKey: string | null;
+  photoType: string | null;
+} | null> {
+  const [row] = await db
+    .select({
+      id: studioTemplate.id,
+      name: studioTemplate.name,
+      photoFileId: studioTemplate.photoFileId,
+      photoKey: projectFile.s3Key,
+      photoType: projectFile.contentType,
+    })
+    .from(studioTemplate)
+    .leftJoin(projectFile, eq(projectFile.id, studioTemplate.photoFileId))
+    .where(and(eq(studioTemplate.projectId, projectId), eq(studioTemplate.slot, slot)));
+  return row ?? null;
 }
 
 function postQuery() {
   return db
-    .select(postSelection)
+    .select({
+      publicId: studioPost.publicId,
+      projectId: studioPost.projectId,
+      slot: studioTemplate.slot,
+      templateName: studioTemplate.name,
+      instruction: studioPost.instruction,
+      imageId: projectFile.publicId,
+      createdByName: user.name,
+      createdAt: studioPost.createdAt,
+    })
     .from(studioPost)
     .innerJoin(studioTemplate, eq(studioTemplate.id, studioPost.templateId))
-    .leftJoin(user, eq(user.id, studioPost.createdByUserId))
-    .leftJoin(sourceFile, eq(sourceFile.id, studioPost.sourceImageFileId))
-    .leftJoin(renderedFile, eq(renderedFile.id, studioPost.renderedFileId));
+    .leftJoin(projectFile, eq(projectFile.id, studioPost.imageFileId))
+    .leftJoin(user, eq(user.id, studioPost.createdByUserId));
 }
 
-export async function listStudioTemplates(projectId: number): Promise<StudioTemplateRow[]> {
-  const rows = await db
-    .select()
-    .from(studioTemplate)
-    .where(eq(studioTemplate.projectId, projectId))
-    .orderBy(studioTemplate.name);
-  return rows.map(mapTemplate);
+function mapPost(row: Awaited<ReturnType<typeof postQuery>>[number]): StudioPostRow {
+  return { ...row, createdAt: iso(row.createdAt) };
 }
 
-export async function getStudioTemplate(publicId: string): Promise<StudioTemplateRow | null> {
-  const [row] = await db.select().from(studioTemplate).where(eq(studioTemplate.publicId, publicId));
-  return row ? mapTemplate(row) : null;
-}
-
-export async function getStudioTemplateProjectId(publicId: string): Promise<number | null> {
-  const [row] = await db
-    .select({ projectId: studioTemplate.projectId })
-    .from(studioTemplate)
-    .where(eq(studioTemplate.publicId, publicId));
-  return row?.projectId ?? null;
-}
-
-export type StudioTemplateInput = Omit<
-  StudioTemplateRow,
-  'id' | 'publicId' | 'createdAt' | 'updatedAt'
->;
-
-export async function createStudioTemplate(input: StudioTemplateInput): Promise<StudioTemplateRow> {
-  const [created] = await db.insert(studioTemplate).values(input).returning();
-  return mapTemplate(created);
-}
-
-export async function updateStudioTemplate(
-  publicId: string,
-  patch: Partial<Omit<StudioTemplateInput, 'projectId'>>,
-): Promise<StudioTemplateRow | null> {
-  const [row] = await db
-    .update(studioTemplate)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(studioTemplate.publicId, publicId))
-    .returning();
-  return row ? mapTemplate(row) : null;
-}
-
-export async function deleteStudioTemplate(publicId: string): Promise<boolean> {
-  const rows = await db
-    .delete(studioTemplate)
-    .where(eq(studioTemplate.publicId, publicId))
-    .returning({ id: studioTemplate.id });
-  return rows.length > 0;
-}
-
-export async function listStudioPosts(projectId: number): Promise<StudioPostRow[]> {
+export async function listStudioPosts(projectId: number, limit = 100): Promise<StudioPostRow[]> {
   const rows = await postQuery()
     .where(eq(studioPost.projectId, projectId))
-    .orderBy(desc(studioPost.createdAt), desc(studioPost.id));
+    .orderBy(desc(studioPost.createdAt), desc(studioPost.id))
+    .limit(limit);
   return rows.map(mapPost);
 }
 
 export async function getStudioPost(publicId: string): Promise<StudioPostRow | null> {
   const [row] = await postQuery().where(eq(studioPost.publicId, publicId));
   return row ? mapPost(row) : null;
-}
-
-// The files a post points at, by their numeric id. Replacing a generated asset
-// needs these to purge the one that is being superseded.
-export async function studioPostFileIds(
-  publicId: string,
-): Promise<{ source: number | null; rendered: number | null }> {
-  const [row] = await db
-    .select({ source: studioPost.sourceImageFileId, rendered: studioPost.renderedFileId })
-    .from(studioPost)
-    .where(eq(studioPost.publicId, publicId));
-  return { source: row?.source ?? null, rendered: row?.rendered ?? null };
 }
 
 export async function getStudioPostProjectId(publicId: string): Promise<number | null> {
@@ -172,13 +139,24 @@ export async function getStudioPostProjectId(publicId: string): Promise<number |
   return row?.projectId ?? null;
 }
 
+// Where the image of a post is stored, for the public image route.
+export async function studioPostImage(
+  publicId: string,
+): Promise<{ key: string; contentType: string } | null> {
+  const [row] = await db
+    .select({ key: projectFile.s3Key, contentType: projectFile.contentType })
+    .from(studioPost)
+    .innerJoin(projectFile, eq(projectFile.id, studioPost.imageFileId))
+    .where(eq(studioPost.publicId, publicId));
+  return row ?? null;
+}
+
 export async function createStudioPost(input: {
   projectId: number;
   templateId: number;
+  instruction: string;
+  imageFileId: number;
   createdByUserId: string | null;
-  title: string;
-  topic: string;
-  folder: string;
 }): Promise<StudioPostRow> {
   const [created] = await db
     .insert(studioPost)
@@ -189,63 +167,16 @@ export async function createStudioPost(input: {
   return row;
 }
 
-export async function updateStudioPost(
-  publicId: string,
-  patch: {
-    title?: string;
-    topic?: string;
-    leadLine?: string;
-    headline?: string;
-    subtext?: string;
-    chips?: string[];
-    ctaLabel?: string;
-    caption?: string;
-    imagePrompt?: string;
-    status?: string;
-    sourceImageFileId?: number | null;
-    renderedFileId?: number | null;
-  },
-): Promise<StudioPostRow | null> {
-  await db
-    .update(studioPost)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(studioPost.publicId, publicId));
-  return getStudioPost(publicId);
-}
-
-export async function deleteStudioPost(publicId: string): Promise<StudioPostRow | null> {
-  const current = await getStudioPost(publicId);
-  if (!current) return null;
-  await db.delete(studioPost).where(eq(studioPost.publicId, publicId));
-  return current;
-}
-
-// The template a post is built on, resolved inside the post's own project so a
-// post can never reference another project's design.
-export async function getTemplateForPost(
-  templatePublicId: string,
-  projectId: number,
-): Promise<StudioTemplateRow | null> {
-  const [row] = await db
-    .select()
-    .from(studioTemplate)
-    .where(
-      and(eq(studioTemplate.publicId, templatePublicId), eq(studioTemplate.projectId, projectId)),
-    );
-  return row ? mapTemplate(row) : null;
-}
-
-// A vault folder name not yet used by another post in the project, so each post
-// keeps its own folder even when two share a title.
-export async function uniqueFolder(projectId: number, base: string): Promise<string> {
-  const rows = await db
-    .select({ folder: studioPost.folder })
-    .from(studioPost)
-    .where(eq(studioPost.projectId, projectId));
-  const taken = new Set(rows.map((r) => r.folder));
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n += 1) {
-    const candidate = `${base} ${n}`;
-    if (!taken.has(candidate)) return candidate;
+// Removes the post and returns the id of its image file, so the caller can purge it.
+export async function deleteStudioPost(publicId: string): Promise<{ imageFileId: number | null }> {
+  try {
+    const [row] = await db
+      .delete(studioPost)
+      .where(eq(studioPost.publicId, publicId))
+      .returning({ imageFileId: studioPost.imageFileId });
+    return { imageFileId: row?.imageFileId ?? null };
+  } catch (error) {
+    if (pgErrorCode(error) === '23503') throw new HttpError(409, 'The image is used by a draft');
+    throw error;
   }
 }

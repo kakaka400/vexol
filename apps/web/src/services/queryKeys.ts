@@ -137,7 +137,9 @@ export const qk = {
   competitors: (projectKey: string) => ['competitors', projectKey] as const,
   studioTemplates: (projectKey: string) => ['studioTemplates', projectKey] as const,
   studioPosts: (projectKey: string) => ['studioPosts', projectKey] as const,
-  studioModels: (projectKey: string) => ['studioModels', projectKey] as const,
+  studioDrafts: (projectKey: string) => ['studioDrafts', projectKey] as const,
+  studioDraft: (projectKey: string, draftId: string) =>
+    ['studioDrafts', projectKey, draftId] as const,
   phoneOverview: (projectKey: string) => ['phoneOverview', projectKey] as const,
   phoneCalls: (projectKey: string, filters: unknown) =>
     ['phoneCalls', projectKey, filters] as const,

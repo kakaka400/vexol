@@ -5,7 +5,7 @@ import { useAgentThreadsQuery, useDeleteAgentThread } from '@/services/aiAgents.
 import { Skeleton } from '@/components/ui/skeleton';
 import ConfirmDialog from '@/components/common/overlay/ConfirmDialog';
 import type { AiChatThread } from '@/lib/api';
-import { AiChatThreadItem } from './AiChatThreadItem';
+import { AiChatThreadItem } from '@/components/common/agent-chat/AiChatThreadItem';
 
 // The caller's own past conversations with one agent, newest first. Used by both the
 // AI Chat page's thread rail and the floating chat's history layer; each host supplies

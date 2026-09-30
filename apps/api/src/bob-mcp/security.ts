@@ -29,7 +29,14 @@ export function sanitizeErrorCode(error: unknown): string {
     const code = (error as { code?: unknown }).code;
     if (
       typeof code === 'string' &&
-      ['forbidden', 'not_found', 'invalid_request', 'rate_limited', 'timeout'].includes(code)
+      [
+        'forbidden',
+        'not_found',
+        'invalid_request',
+        'rate_limited',
+        'timeout',
+        'unavailable',
+      ].includes(code)
     ) {
       return code;
     }

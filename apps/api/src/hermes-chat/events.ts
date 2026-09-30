@@ -1,8 +1,7 @@
 export type DashboardChatEvent =
   | { type: 'text'; value: string }
   | { type: 'tool-start'; toolCallId: string; toolName: string }
-  | { type: 'tool-end'; toolCallId: string; toolName: string }
-  | { type: 'error'; message: string };
+  | { type: 'tool-end'; toolCallId: string; toolName: string };
 
 function safeToolName(value: unknown): string {
   if (typeof value !== 'string') return 'tool';
@@ -33,9 +32,6 @@ export function mapHermesEvent(
       toolCallId: `${requestId}:${sequence}`,
       toolName: safeToolName(data.tool_name),
     };
-  }
-  if (event === 'error') {
-    return { type: 'error', message: 'Bob could not complete this response.' };
   }
   return null;
 }

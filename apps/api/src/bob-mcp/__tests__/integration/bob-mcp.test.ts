@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { agentRun, aiAgent, db, mcpAuditLog } from '@repo/db';
@@ -7,6 +7,7 @@ import { app } from '../../../app';
 import { authedApi } from '../../../__tests__/helpers/app';
 import { signUpTestUser } from '../../../__tests__/helpers/auth';
 import { resetDb } from '../../../__tests__/helpers/db';
+import { TEST_PNG } from '../../../__tests__/helpers/images';
 import { resetBobMcpRateLimiter } from '../../rate-limit';
 
 const TOKEN = 'bob-test-token-with-enough-entropy';
@@ -22,9 +23,38 @@ const TOOL_NAMES = [
   'list_competitors',
   'list_competitor_alerts',
   'list_agent_runs',
+  'list_studio_templates',
+  'list_studio_posts',
+  'create_studio_post',
 ];
+const WRITE_TOOLS = ['create_studio_post'];
 
-async function provisionBob(permissions?: Record<string, { read: boolean }>) {
+// A local stand-in for the OpenRouter image API. It records what it was sent and
+// answers with a fixed image, so a generation can be checked end to end without
+// calling the paid API.
+const GENERATED_PNG = Buffer.concat([TEST_PNG, Buffer.from('generated')]);
+const openRouterRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+let fakeOpenRouter: ReturnType<typeof Bun.serve>;
+
+beforeAll(() => {
+  fakeOpenRouter = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      openRouterRequests.push({
+        path: new URL(request.url).pathname,
+        authorization: request.headers.get('authorization'),
+        body: await request.json().catch(() => null),
+      });
+      return Response.json({
+        data: [{ b64_json: GENERATED_PNG.toString('base64'), media_type: 'image/png' }],
+      });
+    },
+  });
+});
+
+afterAll(() => fakeOpenRouter.stop(true));
+
+async function provisionBob(permissions?: Record<string, Record<string, boolean>>) {
   const owner = await signUpTestUser();
   const api = authedApi(owner.cookie);
   const created = await api.projects.post({ key: 'VEX', name: 'Vexol' });
@@ -38,6 +68,7 @@ async function provisionBob(permissions?: Record<string, { read: boolean }>) {
       braindump: { read: true },
       mind: { read: true },
       competitors: { read: true },
+      studio: { read: true, create: true },
     },
   });
   await api.projects({ projectKey: 'VEX' })['ai-agents'].post({
@@ -68,12 +99,15 @@ describe('Bob MCP', () => {
     token: process.env.VEXOL_BOB_MCP_TOKEN,
     projectKey: process.env.VEXOL_BOB_MCP_PROJECT_KEY,
     leadsProjectKey: process.env.VEXOL_LEADS_PROJECT_KEY,
+    openRouterBase: process.env.OPENROUTER_BASE_URL,
   };
 
   beforeEach(async () => {
     process.env.VEXOL_BOB_MCP_TOKEN = TOKEN;
     process.env.VEXOL_BOB_MCP_PROJECT_KEY = 'VEX';
     process.env.VEXOL_LEADS_PROJECT_KEY = 'VEX';
+    process.env.OPENROUTER_BASE_URL = `http://localhost:${fakeOpenRouter.port}`;
+    openRouterRequests.length = 0;
     resetBobMcpRateLimiter();
     await resetDb();
     // resetDb truncates all 111 tables in the schema, which costs about a second
@@ -84,6 +118,7 @@ describe('Bob MCP', () => {
     process.env.VEXOL_BOB_MCP_TOKEN = original.token;
     process.env.VEXOL_BOB_MCP_PROJECT_KEY = original.projectKey;
     process.env.VEXOL_LEADS_PROJECT_KEY = original.leadsProjectKey;
+    process.env.OPENROUTER_BASE_URL = original.openRouterBase;
   });
 
   it('returns a generic 401 without a bearer credential', async () => {
@@ -113,7 +148,7 @@ describe('Bob MCP', () => {
     }
   });
 
-  it('initializes with the real SDK client and exposes only read-only tools', async () => {
+  it('initializes with the real SDK client and marks every tool but one read-only', async () => {
     await provisionBob();
     const transport = new StreamableHTTPClientTransport(new URL('http://localhost/mcp/v1/bob'), {
       requestInit: { headers: { authorization: `Bearer ${TOKEN}` } },
@@ -124,7 +159,14 @@ describe('Bob MCP', () => {
     await client.connect(transport);
     const listed = await client.listTools();
     expect(listed.tools.map((tool) => tool.name)).toEqual(TOOL_NAMES);
-    expect(listed.tools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
+    expect(
+      listed.tools
+        .filter((tool) => !WRITE_TOOLS.includes(tool.name))
+        .every((tool) => tool.annotations?.readOnlyHint === true),
+    ).toBe(true);
+    expect(
+      listed.tools.find((tool) => tool.name === 'create_studio_post')?.annotations,
+    ).toMatchObject({ readOnlyHint: false, destructiveHint: false });
 
     const projects = await client.callTool({ name: 'list_projects', arguments: {} });
     expect(projects.isError).not.toBe(true);
@@ -134,6 +176,25 @@ describe('Bob MCP', () => {
       pageSize: 20,
     });
     await client.close();
+  });
+
+  it('reports an unconfigured service identity as 503, not as a refusal', async () => {
+    await provisionBob();
+    process.env.VEXOL_BOB_MCP_PROJECT_KEY = 'NOSUCHKEY';
+    const response = await rpc('tools/call', { name: 'list_projects', arguments: {} });
+    expect(response.status).toBe(503);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    expect(await response.json()).toMatchObject({ error: 'Service unavailable' });
+  });
+
+  it('reports a missing bob-agent as 503', async () => {
+    const owner = await signUpTestUser();
+    const api = authedApi(owner.cookie);
+    await api.projects.post({ key: 'VEX', name: 'Vexol' });
+    await api.projects({ projectKey: 'VEX' }).settings.patch({ mcpEnabled: true });
+    const response = await rpc('tools/call', { name: 'list_projects', arguments: {} });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: 'Service unavailable' });
   });
 
   it('blocks a project id outside the configured project context', async () => {
@@ -365,7 +426,7 @@ describe('Bob MCP', () => {
     // A missing service identity is an internal fault, not a client mistake.
     process.env.VEXOL_BOB_MCP_PROJECT_KEY = '';
     const response = await rpc('tools/call', { name: 'get_dashboard_summary', arguments: {} });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(503);
     const raw = JSON.stringify(await response.json());
     expect(raw).toContain('Service unavailable');
     expect(raw).not.toContain(TOKEN);
@@ -394,5 +455,129 @@ describe('Bob MCP', () => {
     };
     expect(body.result.structuredContent.items).toHaveLength(1);
     expect(body.result.structuredContent.hasMore).toBe(false);
+  });
+
+  async function callTool(name: string, args: Record<string, unknown> = {}) {
+    const response = await rpc('tools/call', { name, arguments: args });
+    const body = (await response.json()) as {
+      result: {
+        isError?: boolean;
+        content: Array<{ text: string }>;
+        structuredContent?: Record<string, unknown>;
+      };
+    };
+    return body.result;
+  }
+
+  function photo(name: string) {
+    return new File([TEST_PNG], name, { type: 'image/png' });
+  }
+
+  it('lists the six studio templates with whether each has a photo', async () => {
+    const { api } = await provisionBob();
+    const studio = api.projects({ projectKey: 'VEX' }).studio;
+    await studio.templates({ slot: 2 }).patch({ name: 'Quote', description: 'Dark quote card' });
+    await studio.templates({ slot: 2 }).photo.post({ file: photo('quote.png') });
+
+    const result = await callTool('list_studio_templates');
+    expect(result.isError).not.toBe(true);
+    const items = result.structuredContent!.items as Array<Record<string, unknown>>;
+    expect(items).toHaveLength(6);
+    expect(items[1]).toEqual({
+      slot: 2,
+      name: 'Quote',
+      description: 'Dark quote card',
+      hasPhoto: true,
+    });
+    expect(items[0]).toMatchObject({ slot: 1, hasPhoto: false });
+  });
+
+  it('tells the agent why a studio post cannot be generated yet', async () => {
+    const { api } = await provisionBob();
+
+    const noPhoto = await callTool('create_studio_post', { slot: 1, instruction: 'Say hello' });
+    expect(noPhoto.isError).toBe(true);
+    expect(noPhoto.content[0]!.text).toBe('Template 1 has no photo yet');
+
+    await api
+      .projects({ projectKey: 'VEX' })
+      .studio.templates({ slot: 1 })
+      .photo.post({ file: photo('one.png') });
+    const noKey = await callTool('create_studio_post', { slot: 1, instruction: 'Say hello' });
+    expect(noKey.isError).toBe(true);
+    expect(noKey.content[0]!.text).toBe('Connect an OpenRouter integration first');
+    expect(openRouterRequests).toHaveLength(0);
+  });
+
+  it('rejects a slot outside 1 to 6 and an empty instruction', async () => {
+    await provisionBob();
+    const badSlot = await callTool('create_studio_post', { slot: 7, instruction: 'x' });
+    expect(badSlot.isError).toBe(true);
+    const empty = await callTool('create_studio_post', { slot: 1, instruction: '' });
+    expect(empty.isError).toBe(true);
+    expect(openRouterRequests).toHaveLength(0);
+  });
+
+  it('edits a template photo into a new post and serves it publicly', async () => {
+    const { api } = await provisionBob();
+    const project = api.projects({ projectKey: 'VEX' });
+    await project.integrations.post({
+      integrationKey: 'openrouter',
+      credential: { apiKey: 'test-openrouter-key' },
+    });
+    await project.studio.templates({ slot: 4 }).patch({ name: 'Launch' });
+    await project.studio.templates({ slot: 4 }).photo.post({ file: photo('launch.png') });
+
+    const result = await callTool('create_studio_post', {
+      slot: 4,
+      instruction: 'Put "Now open" on it',
+    });
+    expect(result.isError).not.toBe(true);
+    const imageUrl = result.structuredContent!.imageUrl as string;
+    expect(imageUrl).toContain('/studio/posts/');
+    expect(result.structuredContent).toMatchObject({
+      slot: 4,
+      templateName: 'Launch',
+      instruction: 'Put "Now open" on it',
+    });
+
+    // The template photo itself went to the model, together with the instruction.
+    expect(openRouterRequests).toHaveLength(1);
+    const sent = openRouterRequests[0]!;
+    expect(sent.path).toBe('/images');
+    expect(sent.authorization).toBe('Bearer test-openrouter-key');
+    const body = sent.body as {
+      model: string;
+      prompt: string;
+      input_references: Array<{ image_url: { url: string } }>;
+    };
+    expect(body.model).toBe('google/gemini-3.1-flash-image');
+    expect(body.prompt).toContain('Put "Now open" on it');
+    expect(body.input_references[0]!.image_url.url).toBe(
+      `data:image/png;base64,${TEST_PNG.toString('base64')}`,
+    );
+
+    // The image is served without a session, as the bytes the model returned.
+    const imagePath = new URL(imageUrl).pathname;
+    const image = await app.handle(new Request(`http://localhost${imagePath}`));
+    expect(image.status).toBe(200);
+    expect(image.headers.get('content-type')).toBe('image/png');
+    expect(image.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(Buffer.from(await image.arrayBuffer()).equals(GENERATED_PNG)).toBe(true);
+
+    // The dashboard lists it, created by the agent.
+    const posts = await project.studio.posts.get();
+    expect(posts.data).toHaveLength(1);
+    expect(posts.data![0]).toMatchObject({ slot: 4, createdByName: 'Bob' });
+    const listed = await callTool('list_studio_posts');
+    expect(listed.structuredContent!.items).toHaveLength(1);
+  });
+
+  it('refuses to generate without the studio create permission', async () => {
+    await provisionBob({ work_items: { read: true }, studio: { read: true } });
+    const result = await callTool('create_studio_post', { slot: 1, instruction: 'Say hello' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toBe('Resource is not available');
+    expect((await callTool('list_studio_templates')).isError).not.toBe(true);
   });
 });

@@ -56,7 +56,9 @@ export function useHermesChat(projectKey: string, agentId: number, conversationI
           }
         }
       } catch (error) {
-        toast.error(error instanceof ApiError ? error.message : 'Could not reach Bob. Try again.');
+        toast.error(
+          error instanceof ApiError ? error.message : 'Could not reach the agent. Try again.',
+        );
       } finally {
         setStatus('ready');
         setActiveTool(null);
