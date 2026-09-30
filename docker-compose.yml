@@ -93,6 +93,8 @@ services:
       HERMES_API_BASE_URL: ${HERMES_API_BASE_URL:?set the private Hermes API Server URL in .env}
       HERMES_BOB_PROJECT_KEY: ${HERMES_BOB_PROJECT_KEY:?set the project key allowed for Hermes Bob chat}
       HERMES_BOB_API_KEY: ${HERMES_BOB_API_KEY:?set the default-profile Hermes API_SERVER_KEY in .env}
+      HERMES_VERA_PROJECT_KEY: ${HERMES_VERA_PROJECT_KEY:-}
+      HERMES_VERA_API_KEY: ${HERMES_VERA_API_KEY:-}
       ZERNIO_API: ${ZERNIO_API:?set the server-side Zernio API key in .env}
       ZERNIO_PROJECT_KEY: ${ZERNIO_PROJECT_KEY:?set the project key allowed to access Social}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}

@@ -28,10 +28,7 @@ describe('Hermes SSE event mapping', () => {
   it('does not forward raw upstream errors, tool arguments, or unknown events', () => {
     expect(
       mapHermesEvent('error', { message: 'key=super-secret C:\\Users\\x' }, 'request-1', 1),
-    ).toEqual({
-      type: 'error',
-      message: 'Bob could not complete this response.',
-    });
+    ).toBeNull();
     expect(mapHermesEvent('debug.config', { api_key: 'secret' }, 'request-1', 2)).toBeNull();
   });
 });

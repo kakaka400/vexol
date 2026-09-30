@@ -1,31 +1,34 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { loadImageFromBlob } from '../utils/renderPost';
 
-// The generated photo of a post, ready to draw. It is fetched as a blob rather
-// than pointed at with a src, because the raw file route needs the session cookie
-// and a blob URL keeps the canvas exportable.
-export function useStudioPhoto(fileId: string | null): HTMLImageElement | null {
-  const [photo, setPhoto] = useState<HTMLImageElement | null>(null);
+// A template photo as an object URL for an <img>. It is fetched as a blob rather
+// than pointed at with a src, because the vault file route needs the session
+// cookie. The URL is revoked when the photo changes or the card unmounts.
+export function useStudioPhoto(fileId: string | null): string | null {
+  const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!fileId) {
-      setPhoto(null);
+      setUrl(null);
       return;
     }
     let cancelled = false;
+    let objectUrl: string | null = null;
     void (async () => {
       try {
-        const image = await loadImageFromBlob(await api.downloadProjectFile(fileId));
-        if (!cancelled) setPhoto(image);
+        const blob = await api.downloadProjectFile(fileId);
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
       } catch {
-        if (!cancelled) setPhoto(null);
+        if (!cancelled) setUrl(null);
       }
     })();
     return () => {
       cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [fileId]);
 
-  return photo;
+  return url;
 }

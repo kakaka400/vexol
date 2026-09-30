@@ -7,7 +7,7 @@ import { useAgentChat } from '@/hooks/useAgentChat';
 import { useAgentThreadMessagesQuery } from '@/services/aiAgents.service';
 import { qk } from '@/services/queryKeys';
 import { AgentChatPanel } from '@/components/common/agent-chat/AgentChatPanel';
-import { AiChatThreadSkeleton } from './AiChatThreadSkeleton';
+import { AiChatThreadSkeleton } from '@/components/common/agent-chat/AiChatThreadSkeleton';
 
 // The transcript and composer for one conversation with an agent. The chat session
 // lives here, so it survives the floating window being minimized (the window is hidden,

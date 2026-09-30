@@ -1,4 +1,4 @@
-# Bob read-only MCP
+# Bob MCP
 
 The API exposes a stateless Streamable HTTP MCP endpoint for the fixed service actor
 `bob-agent`:
@@ -22,8 +22,8 @@ VEXOL_LEADS_PROJECT_KEY=VEX
 ```
 
 Create an external project agent with username `bob-agent`. Assign it a project role with only
-the required read permissions: `work_items.read`, `dashboards.read`, `braindump.read`,
-`mind.read`, and `competitors.read`. Enable MCP for that project. The endpoint resolves this
+the required permissions: `work_items.read`, `dashboards.read`, `braindump.read`, `mind.read`,
+`competitors.read`, `studio.read`, and `studio.create`. Enable MCP for that project. The endpoint resolves this
 agent's `project_member` row on every request. It does not use a browser session or a personal
 dashboard login.
 
@@ -44,9 +44,22 @@ API service. Do not store the token in a command history or a checked-in file.
 - `list_competitors`
 - `list_competitor_alerts`
 - `list_agent_runs`
+- `list_studio_templates`
+- `list_studio_posts`
+- `create_studio_post`
 
-All tools are read-only. Page size is limited to 50. Tool responses are limited to 256 KiB and
-requests time out after 10 seconds. The API permits a burst of 20 requests and refills at 60
+`create_studio_post` is the only tool that changes data. It edits the photo of one of the six
+Studio templates with an instruction, through the project's first OpenRouter credential and the
+`google/gemini-3.1-flash-image` model, and stores the result as a new Studio post and a vault
+file in the `Studio` folder. It needs `studio.create` and times out after 150 seconds, because
+image generation alone can take two minutes. A missing template photo or OpenRouter credential
+is returned to the agent as a readable message.
+
+Each post has a public image URL, `API_URL/studio/posts/<id>/image`, so a chat client such as
+Telegram can fetch it. The id is an unguessable UUID; only PNG, JPEG and WebP are served.
+
+Every other tool is read-only. Page size is limited to 50. Tool responses are limited to
+256 KiB and requests time out after 10 seconds. The API permits a burst of 20 requests and refills at 60
 requests per minute for `bob-agent`. A multi-replica deployment needs a shared edge rate limit
 in addition to the per-process limiter.
 
@@ -78,8 +91,11 @@ lead campaign, review, and recent agent-run counts. Do not change anything.`
 ## Troubleshooting
 
 - `401 Unauthorized`: the bearer token is missing or does not match the API environment.
-- `403 Service unavailable`: the configured project, MCP toggle, `bob-agent`, membership, or
-  required read permission is missing.
+- `503 Service unavailable`: the configured project, the MCP toggle, `bob-agent`, or its
+  membership is missing. The API log names which one:
+  `docker compose logs api | grep bob-mcp`.
+- `Resource is not available` from a tool: the role of `bob-agent` lacks the permission that tool
+  needs.
 - `429 Too many requests`: wait for the service bucket to refill.
 - `504 Request timed out`: check database health and proxy timeouts.
 - Leads failures: verify the dedicated leads connection uses a read-only database role and that

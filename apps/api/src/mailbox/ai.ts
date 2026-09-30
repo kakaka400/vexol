@@ -1,6 +1,4 @@
-import { chatCompletionText } from '../integrations/openrouter';
-import { getCredentialSecret, listCredentials } from '../integrations/store';
-import { HttpError } from '../shared/lib';
+import { chatCompletionText, projectOpenRouterKey } from '../integrations/openrouter';
 import { getMailboxMessage, type MailMessage } from './client';
 import { getStoredMailSummary, saveMailSummary, type MailboxConfig } from './store';
 
@@ -8,18 +6,6 @@ const MODEL = 'openrouter/free';
 const REQUEST_TIMEOUT_MS = 60_000;
 
 export type MailAiAction = 'summary' | 'reply';
-
-async function openRouterApiKey(projectId: number): Promise<string> {
-  const credential = (await listCredentials(projectId)).find(
-    (item) => item.integrationKey === 'openrouter',
-  );
-  if (!credential) throw new HttpError(409, 'Connect an OpenRouter integration first');
-
-  const secret = await getCredentialSecret(credential.id, projectId);
-  const apiKey = String(secret?.config.apiKey ?? '');
-  if (!apiKey) throw new HttpError(409, 'The OpenRouter integration has no API key');
-  return apiKey;
-}
 
 function instructions(action: MailAiAction): string {
   if (action === 'summary') {
@@ -33,7 +19,7 @@ export async function generateMailAssistance(
   message: MailMessage,
   action: MailAiAction,
 ): Promise<string> {
-  const apiKey = await openRouterApiKey(projectId);
+  const apiKey = await projectOpenRouterKey(projectId);
   return chatCompletionText(
     apiKey,
     {

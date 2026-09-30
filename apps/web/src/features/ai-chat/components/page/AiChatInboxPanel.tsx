@@ -5,7 +5,7 @@ import { Search } from 'lucide-react';
 import type { AiAgent, HermesChatAgent, HermesConversation } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { AiChatAgentList } from './AiChatAgentList';
-import { HermesConversationList } from './HermesConversationList';
+import { HermesConversationList } from '@/components/common/agent-chat/HermesConversationList';
 
 export function AiChatInboxPanel({
   projectKey,

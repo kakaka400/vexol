@@ -16,6 +16,9 @@ import {
 
 const ENDPOINT = '/mcp/v1/bob';
 const REQUEST_TIMEOUT_MS = 10_000;
+// Image generation alone takes up to two minutes (see studio/generate.ts).
+const GENERATION_TIMEOUT_MS = 150_000;
+const GENERATION_TOOLS = new Set(['create_studio_post']);
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const TOOL_NAMES = new Set([
   'get_dashboard_summary',
@@ -28,6 +31,9 @@ const TOOL_NAMES = new Set([
   'list_competitors',
   'list_competitor_alerts',
   'list_agent_runs',
+  'list_studio_templates',
+  'list_studio_posts',
+  'create_studio_post',
 ]);
 
 function requestId(request: Request): string {
@@ -143,7 +149,7 @@ export function mountBobMcp(app: any): void {
         await server.connect(transport);
         const response = await withTimeout(
           transport.handleRequest(request, { parsedBody: body }),
-          REQUEST_TIMEOUT_MS,
+          GENERATION_TOOLS.has(name) ? GENERATION_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
         );
         const bounded = await boundedResponse(response, id);
         if (bounded.status >= 400 && audit.resultStatus === 'success') {
@@ -164,8 +170,14 @@ export function mountBobMcp(app: any): void {
           },
           error,
         );
-        const status = audit.errorCode === 'timeout' ? 504 : 403;
-        const message = status === 504 ? 'Request timed out' : 'Service unavailable';
+        const status =
+          audit.errorCode === 'timeout' ? 504 : audit.errorCode === 'unavailable' ? 503 : 403;
+        const message =
+          status === 504
+            ? 'Request timed out'
+            : status === 503
+              ? 'Service unavailable'
+              : 'Request refused';
         return finish(json(status, { error: message, requestId: id }, id));
       } finally {
         await server?.close().catch(() => undefined);
@@ -173,7 +185,7 @@ export function mountBobMcp(app: any): void {
     },
     {
       body: t.Any(),
-      detail: { summary: 'Bob read-only MCP Streamable HTTP endpoint', hide: true },
+      detail: { summary: 'Bob MCP Streamable HTTP endpoint', hide: true },
     },
   );
 }

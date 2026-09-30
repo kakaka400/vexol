@@ -8,7 +8,12 @@ import { ErrorResponse } from '../shared/responses';
 import { getAgentById, listAgents } from '../ai-agents/store';
 import { checkHermesReadiness, createHermesSession, openHermesChatStream } from './client';
 import { mapHermesEvent } from './events';
-import { resolveHermesAgent, type HermesAgentRoute } from './registry';
+import {
+  hermesAgentAllowed,
+  hermesAgentForUsername,
+  resolveHermesAgent,
+  type HermesAgentRoute,
+} from './registry';
 import { readHermesSse } from './sse';
 import {
   archiveHermesConversation,
@@ -33,23 +38,19 @@ function requestId(request: Request): string {
     : crypto.randomUUID();
 }
 
-function agentSlug(username: string): string | null {
-  return username === 'bob' || username === 'bob-agent' ? 'bob' : null;
-}
-
 function routeForAgent(projectKey: string, username: string): HermesAgentRoute {
-  const allowedProject = process.env.HERMES_BOB_PROJECT_KEY;
-  const slug = agentSlug(username);
-  const route = slug ? resolveHermesAgent(slug) : null;
-  if (!route || !allowedProject || allowedProject !== projectKey) {
+  const route = hermesAgentForUsername(username);
+  if (!route || !hermesAgentAllowed(route, projectKey)) {
     throw new HttpError(404, 'Hermes agent not found');
   }
   return route;
 }
 
+// A conversation keeps the agent it was created with, even after that agent's
+// username changes.
 function routeForConversation(projectKey: string, slug: string): HermesAgentRoute {
   const route = resolveHermesAgent(slug);
-  if (!route || process.env.HERMES_BOB_PROJECT_KEY !== projectKey) {
+  if (!route || !hermesAgentAllowed(route, projectKey)) {
     throw new HttpError(404, 'Hermes agent not found');
   }
   return route;
@@ -81,21 +82,19 @@ export const hermesChatRoutes = new Elysia({
   .get(
     '/projects/:projectKey/hermes-agents',
     async ({ project, params }) => {
-      if (process.env.HERMES_BOB_PROJECT_KEY !== params.projectKey) return [];
-      const agent = (await listAgents(project.id)).find((candidate) =>
-        agentSlug(candidate.username),
-      );
-      if (!agent) return [];
-      const route = routeForAgent(params.projectKey, agent.username);
-      return [
-        {
+      const served = (await listAgents(project.id)).flatMap((agent) => {
+        const route = hermesAgentForUsername(agent.username);
+        return route && hermesAgentAllowed(route, params.projectKey) ? [{ agent, route }] : [];
+      });
+      return Promise.all(
+        served.map(async ({ agent, route }) => ({
           id: agent.id,
-          slug: 'bob',
+          slug: route.slug,
           displayName: agent.name,
-          description: 'Primary assistant and orchestrator',
+          description: route.description,
           status: await checkHermesReadiness(route),
-        },
-      ];
+        })),
+      );
     },
     {
       permission: ['ai_agents', 'read'],
@@ -260,6 +259,7 @@ export const hermesChatRoutes = new Elysia({
           let inputTokens: number | null = null;
           let outputTokens: number | null = null;
           let completed = false;
+          let failed = false;
           let sequence = 0;
           const emit = (event: unknown) => {
             if (!cancelled)
@@ -280,6 +280,7 @@ export const hermesChatRoutes = new Elysia({
                 if (typeof payload.message_id === 'string')
                   eventId = payload.message_id.slice(0, 512);
               }
+              if (['error', 'run.failed', 'run.cancelled'].includes(event.event)) failed = true;
               if (event.event === 'run.completed') {
                 const usage =
                   payload.usage && typeof payload.usage === 'object'
@@ -294,6 +295,11 @@ export const hermesChatRoutes = new Elysia({
             }
             if (!completed) throw new Error('upstream_disconnect');
             const finalText = completedContent ?? assistantText;
+            // Hermes completes a turn whose model call failed with the provider's
+            // error text as the reply. Such a turn produced no output tokens.
+            if (failed || !finalText.trim() || outputTokens === 0) {
+              throw new Error('upstream_failed');
+            }
             if (!assistantText && finalText) emit({ type: 'text', value: finalText });
             await completeHermesRun({
               runId: run.runId,
@@ -312,14 +318,19 @@ export const hermesChatRoutes = new Elysia({
               requestId: id,
               status: 'completed',
             });
-          } catch {
+          } catch (error) {
             await failHermesRun(
               run.runId,
               run.assistantMessageId,
-              'upstream_disconnected',
+              error instanceof Error && error.message === 'upstream_failed'
+                ? 'upstream_failed'
+                : 'upstream_disconnected',
               assistantText,
             ).catch(() => undefined);
-            emit({ type: 'error', message: 'Bob disconnected. You can send the message again.' });
+            emit({
+              type: 'error',
+              message: `${route.displayName} could not complete the response. You can send the message again.`,
+            });
           } finally {
             if (!cancelled) controller.close();
           }

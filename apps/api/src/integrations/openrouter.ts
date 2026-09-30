@@ -1,6 +1,10 @@
 import { HttpError } from '../shared/lib';
+import { getCredentialSecret, listCredentials } from './store';
 
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+// Overridable so the integration tests can point the calls at a local fake.
+function openRouterBase(): string {
+  return process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
+}
 
 // The timeout is a per-caller argument because image generation runs far longer
 // than a chat completion.
@@ -12,7 +16,7 @@ export async function callOpenRouter(
 ): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(`${OPENROUTER_BASE}${path}`, {
+    res = await fetch(`${openRouterBase()}${path}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -46,4 +50,18 @@ export async function chatCompletionText(
   const text = payload.choices?.[0]?.message?.content?.trim();
   if (!text) throw new HttpError(502, 'OpenRouter returned no text');
   return text;
+}
+
+// The API key of the project's first OpenRouter credential, for features that do
+// not let the user pick one.
+export async function projectOpenRouterKey(projectId: number): Promise<string> {
+  const credential = (await listCredentials(projectId)).find(
+    (item) => item.integrationKey === 'openrouter',
+  );
+  if (!credential) throw new HttpError(409, 'Connect an OpenRouter integration first');
+
+  const secret = await getCredentialSecret(credential.id, projectId);
+  const apiKey = String(secret?.config.apiKey ?? '');
+  if (!apiKey) throw new HttpError(409, 'The OpenRouter integration has no API key');
+  return apiKey;
 }

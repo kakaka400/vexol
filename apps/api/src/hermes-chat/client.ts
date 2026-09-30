@@ -6,13 +6,13 @@ const CONNECT_TIMEOUT_MS = 5_000;
 function configuration(route: HermesAgentRoute): { baseUrl: string; apiKey: string } {
   const rawBaseUrl = process.env.HERMES_API_BASE_URL;
   const apiKey = process.env[route.apiKeyEnv];
-  if (!rawBaseUrl || !apiKey) throw new HttpError(503, 'Bob is not configured');
+  if (!rawBaseUrl || !apiKey) throw new HttpError(503, `${route.displayName} is not configured`);
 
   let url: URL;
   try {
     url = new URL(rawBaseUrl);
   } catch {
-    throw new HttpError(503, 'Bob is not configured');
+    throw new HttpError(503, `${route.displayName} is not configured`);
   }
   if (
     !['http:', 'https:'].includes(url.protocol) ||
@@ -21,7 +21,7 @@ function configuration(route: HermesAgentRoute): { baseUrl: string; apiKey: stri
     url.search ||
     url.hash
   ) {
-    throw new HttpError(503, 'Bob is not configured');
+    throw new HttpError(503, `${route.displayName} is not configured`);
   }
   return { baseUrl: url.toString().replace(/\/$/, ''), apiKey };
 }
@@ -49,7 +49,7 @@ async function upstreamFetch(
       signal: init.signal ?? AbortSignal.timeout(timeout),
     });
   } catch {
-    throw new HttpError(502, 'Bob is unavailable');
+    throw new HttpError(502, `${route.displayName} is unavailable`);
   }
 }
 
@@ -63,7 +63,8 @@ export async function createHermesSession(
     headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
     body: JSON.stringify({ source: 'vexol_dashboard', ...(title ? { title } : {}) }),
   });
-  if (!response.ok) throw new HttpError(502, 'Bob could not create a conversation');
+  if (!response.ok)
+    throw new HttpError(502, `${route.displayName} could not create a conversation`);
 
   const body = (await response.json().catch(() => null)) as {
     session?: { id?: unknown };
@@ -71,7 +72,7 @@ export async function createHermesSession(
   } | null;
   const sessionId = body?.session?.id ?? body?.session_id;
   if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 512) {
-    throw new HttpError(502, 'Bob returned an invalid conversation');
+    throw new HttpError(502, `${route.displayName} returned an invalid conversation`);
   }
   return sessionId;
 }
@@ -98,7 +99,7 @@ export async function openHermesChatStream(
     10 * 60_000,
   );
   if (!response.ok || !response.body) {
-    throw new HttpError(502, 'Bob could not start the response');
+    throw new HttpError(502, `${route.displayName} could not start the response`);
   }
   return response;
 }

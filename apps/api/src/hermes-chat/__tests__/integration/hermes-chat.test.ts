@@ -7,6 +7,10 @@ import { resetDb } from '../../../__tests__/helpers/db';
 let mockServer: ReturnType<typeof Bun.serve>;
 let sessionSequence = 0;
 let streamRequests = 0;
+const PROFILE_KEYS: Record<string, string> = {
+  default: 'bob-test-key',
+  'vera-social': 'vera-test-key',
+};
 const requests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
 
 beforeAll(() => {
@@ -20,13 +24,15 @@ beforeAll(() => {
         authorization: request.headers.get('authorization'),
         body,
       });
-      if (request.headers.get('authorization') !== 'Bearer bob-test-key') {
+      const profile = url.pathname.match(/^\/p\/([^/]+)\//)?.[1] ?? '';
+      if (request.headers.get('authorization') !== `Bearer ${PROFILE_KEYS[profile]}`) {
         return Response.json(
           { error: { message: 'wrong upstream key api-secret' } },
           { status: 401 },
         );
       }
-      if (url.pathname === '/p/default/v1/capabilities') {
+      const path = url.pathname.slice(`/p/${profile}`.length);
+      if (path === '/v1/capabilities') {
         return Response.json({
           features: { session_resources: true, session_chat_streaming: true },
           endpoints: {
@@ -38,27 +44,47 @@ beforeAll(() => {
           },
         });
       }
-      if (url.pathname === '/p/default/api/sessions' && request.method === 'POST') {
+      if (path === '/api/sessions' && request.method === 'POST') {
         sessionSequence += 1;
         return Response.json(
           { object: 'hermes.session', session: { id: `session_${sessionSequence}` } },
           { status: 201 },
         );
       }
-      if (/^\/p\/default\/api\/sessions\/session_\d+\/chat\/stream$/.test(url.pathname)) {
+      if (/^\/api\/sessions\/session_\d+\/chat\/stream$/.test(path)) {
         streamRequests += 1;
-        if ((body as { input?: string } | null)?.input === 'Disconnect') {
+        const input = (body as { input?: string } | null)?.input;
+        if (input === 'Disconnect') {
           return new Response('event: assistant.delta\ndata: {"delta":"Partial"}\n\n', {
             headers: { 'Content-Type': 'text/event-stream' },
           });
+        }
+        if (input === 'Provider failure') {
+          return new Response(
+            [
+              'event: assistant.completed\ndata: {"content":"HTTP 401: invalid provider key"}\n\n',
+              'event: run.completed\ndata: {"usage":{"input_tokens":0,"output_tokens":0}}\n\n',
+            ].join(''),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          );
+        }
+        if (input === 'Error event') {
+          return new Response(
+            [
+              'event: assistant.delta\ndata: {"delta":"Traceback"}\n\n',
+              'event: error\ndata: {"message":"Traceback (most recent call last) key=secret"}\n\n',
+              'event: run.completed\ndata: {"usage":{"input_tokens":2,"output_tokens":3}}\n\n',
+            ].join(''),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          );
         }
         const stream = [
           'event: run.started\ndata: {"run_id":"upstream-run"}\n\n',
           'event: assistant.delta\ndata: {"delta":"Hello "}\n\n',
           'event: tool.started\ndata: {"tool_name":"web_search","args":{"apiKey":"secret"}}\n\n',
           'event: tool.completed\ndata: {"tool_name":"web_search","preview":"private"}\n\n',
-          'event: assistant.delta\ndata: {"delta":"from Bob"}\n\n',
-          'event: assistant.completed\ndata: {"message_id":"message-1","content":"Hello from Bob"}\n\n',
+          `event: assistant.delta\ndata: {"delta":"from ${profile}"}\n\n`,
+          `event: assistant.completed\ndata: {"message_id":"message-1","content":"Hello from ${profile}"}\n\n`,
           'event: run.completed\ndata: {"usage":{"input_tokens":2,"output_tokens":3}}\n\n',
           'event: done\ndata: {}\n\n',
         ].join('');
@@ -70,6 +96,8 @@ beforeAll(() => {
   process.env.HERMES_API_BASE_URL = `http://127.0.0.1:${mockServer.port}`;
   process.env.HERMES_BOB_API_KEY = 'bob-test-key';
   process.env.HERMES_BOB_PROJECT_KEY = 'MKT';
+  process.env.HERMES_VERA_API_KEY = 'vera-test-key';
+  process.env.HERMES_VERA_PROJECT_KEY = 'MKT';
 });
 
 afterAll(() => {
@@ -77,6 +105,8 @@ afterAll(() => {
   delete process.env.HERMES_API_BASE_URL;
   delete process.env.HERMES_BOB_API_KEY;
   delete process.env.HERMES_BOB_PROJECT_KEY;
+  delete process.env.HERMES_VERA_API_KEY;
+  delete process.env.HERMES_VERA_PROJECT_KEY;
 });
 
 beforeEach(async () => {
@@ -180,7 +210,7 @@ describe('Hermes dashboard chat', () => {
 
     expect(response.status).toBe(200);
     expect(text).toContain('Hello ');
-    expect(text).toContain('from Bob');
+    expect(text).toContain('from default');
     expect(text).toContain('tool-start');
     expect(text).not.toContain('apiKey');
     expect(text).not.toContain('private');
@@ -191,7 +221,7 @@ describe('Hermes dashboard chat', () => {
     }).messages.get();
     expect(messages.data?.map((message) => ({ role: message.role, text: message.text }))).toEqual([
       { role: 'user', text: 'Hello' },
-      { role: 'assistant', text: 'Hello from Bob' },
+      { role: 'assistant', text: 'Hello from default' },
     ]);
   });
 
@@ -312,7 +342,7 @@ describe('Hermes dashboard chat', () => {
     const text = await response.text();
 
     expect(response.status).toBe(200);
-    expect(text).toContain('Bob disconnected. You can send the message again.');
+    expect(text).toContain('Bob could not complete the response. You can send the message again.');
     expect(text).not.toContain('upstream_disconnect');
     const messages = await hermesConversations(asOwner)({
       conversationId: conversation.data!.id,
@@ -344,5 +374,82 @@ describe('Hermes dashboard chat', () => {
           request.path.includes('/api/sessions/session_1') && request.path.endsWith('/delete'),
       ),
     ).toBe(false);
+  });
+
+  it('serves Vera through her own profile and key, next to Bob', async () => {
+    const { owner, asOwner } = await setup();
+    const vera = await asOwner.projects({ projectKey: 'MKT' })['ai-agents'].post({
+      name: 'Vera',
+      username: 'vera',
+      kind: 'external',
+    });
+
+    const agents = await asOwner.projects({ projectKey: 'MKT' })['hermes-agents'].get();
+    const conversation = await hermesConversations(asOwner).post({
+      agentId: vera.data!.agent.id,
+      profile: 'default',
+    } as never);
+    const response = await stream(
+      owner.cookie,
+      conversation.data!.id,
+      'Draft a post',
+      crypto.randomUUID(),
+    );
+    const text = await response.text();
+
+    expect(agents.data?.map((agent) => agent.slug).sort()).toEqual(['bob', 'vera']);
+    expect(conversation.data?.agentSlug).toBe('vera');
+    expect(text).toContain('from vera-social');
+    expect(requests.at(-1)).toMatchObject({
+      path: '/p/vera-social/api/sessions/session_1/chat/stream',
+      authorization: 'Bearer vera-test-key',
+    });
+  });
+
+  it('does not serve Vera outside her configured project', async () => {
+    const { asOwner } = await setup();
+    const vera = await asOwner.projects({ projectKey: 'MKT' })['ai-agents'].post({
+      name: 'Vera',
+      username: 'vera',
+      kind: 'external',
+    });
+    process.env.HERMES_VERA_PROJECT_KEY = 'OTHER';
+    try {
+      const agents = await asOwner.projects({ projectKey: 'MKT' })['hermes-agents'].get();
+      const conversation = await hermesConversations(asOwner).post({
+        agentId: vera.data!.agent.id,
+      });
+
+      expect(agents.data?.map((agent) => agent.slug)).toEqual(['bob']);
+      expect(conversation.status).toBe(404);
+    } finally {
+      process.env.HERMES_VERA_PROJECT_KEY = 'MKT';
+    }
+  });
+
+  it('fails a turn that reports an error or produced no output tokens', async () => {
+    const { owner, asOwner, agentId } = await setup();
+    const conversation = await hermesConversations(asOwner).post({ agentId });
+
+    for (const message of ['Provider failure', 'Error event']) {
+      const response = await stream(
+        owner.cookie,
+        conversation.data!.id,
+        message,
+        crypto.randomUUID(),
+      );
+      const text = await response.text();
+      expect(text).toContain('Bob could not complete the response.');
+      expect(text).not.toContain('secret');
+      expect(text).not.toContain('"done"');
+    }
+    const messages = await hermesConversations(asOwner)({
+      conversationId: conversation.data!.id,
+    }).messages.get();
+    expect(
+      messages.data
+        ?.filter((message) => message.role === 'assistant')
+        .map((message) => message.status),
+    ).toEqual(['failed', 'failed']);
   });
 });
