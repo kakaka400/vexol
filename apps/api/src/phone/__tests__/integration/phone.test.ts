@@ -27,7 +27,7 @@ describe('Business number', () => {
     else process.env.RINKEL_KEY = originalKey;
   });
 
-  it('reports that the instance has no key instead of failing', async () => {
+  it('reports that the project has no key instead of failing', async () => {
     const { asOwner } = await setupProject();
 
     const overview = await asOwner.projects({ projectKey: 'MKT' }).phone.overview.get();
@@ -40,6 +40,33 @@ describe('Business number', () => {
 
     const calls = await asOwner.projects({ projectKey: 'MKT' }).phone.calls.get({ query: {} });
     expect(calls.status).toBe(503);
+  });
+
+  it("counts the project's own Rinkel key from Integrations as configured", async () => {
+    const { asOwner } = await setupProject();
+    const created = await asOwner.projects({ projectKey: 'MKT' }).integrations.post({
+      integrationKey: 'rinkel',
+      credential: { apiKey: 'rk-project-key' },
+    });
+    expect(created.status).toBe(201);
+
+    const realFetch = globalThis.fetch;
+    const keys: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.startsWith('https://api.rinkel.com/')) return realFetch(input, init);
+      keys.push(new Headers(init?.headers).get('x-rinkel-api-key') ?? '');
+      return Response.json({ data: url.includes('new-count') ? { count: 2 } : [] });
+    }) as typeof fetch;
+    try {
+      const overview = await asOwner.projects({ projectKey: 'MKT' }).phone.overview.get();
+      expect(overview.status).toBe(200);
+      expect(overview.data).toMatchObject({ configured: true, newVoicemails: 2 });
+      expect(keys.length).toBeGreaterThan(0);
+      expect(keys.every((k) => k === 'rk-project-key')).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   it('rejects a direction and a page the API does not accept', async () => {

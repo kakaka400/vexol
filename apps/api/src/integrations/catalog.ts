@@ -10,10 +10,13 @@ import { AI_PROVIDERS } from './llm-providers';
 //   - "tool" — the tool integrations (Jina, Firecrawl, Telegram, Threads) from
 //              @repo/agent-tools. Their credential schema and tool list come from the
 //              package.
+//   - "service" — data sources a project feature reads with the project's own key
+//              (Zernio backs the Social page, Rinkel the Phone page). Not agent tools,
+//              so they expose none.
 // The credential form and, for tool integrations, the tool picker are built from a
 // descriptor on the frontend.
 
-export type IntegrationKind = 'llm' | 'tool';
+export type IntegrationKind = 'llm' | 'tool' | 'service';
 
 export interface UnifiedIntegration {
   key: string;
@@ -57,9 +60,43 @@ const TOOL_INTEGRATIONS: UnifiedIntegration[] = integrationDescriptors().map((d)
   tools: d.tools,
 }));
 
+const SERVICE_INTEGRATIONS: UnifiedIntegration[] = [
+  {
+    key: 'zernio',
+    label: 'Zernio',
+    kind: 'service',
+    credentialSchema: [
+      {
+        key: 'apiKey',
+        label: 'API key',
+        type: 'secret',
+        required: true,
+        help: 'Powers the Social page of this project.',
+      },
+    ],
+    tools: [],
+  },
+  {
+    key: 'rinkel',
+    label: 'Rinkel',
+    kind: 'service',
+    credentialSchema: [
+      {
+        key: 'apiKey',
+        label: 'API key',
+        type: 'secret',
+        required: true,
+        help: 'Powers the Phone page of this project. From the Rinkel dashboard.',
+      },
+    ],
+    tools: [],
+  },
+];
+
 export const INTEGRATION_CATALOG: UnifiedIntegration[] = [
   ...LLM_INTEGRATIONS,
   ...TOOL_INTEGRATIONS,
+  ...SERVICE_INTEGRATIONS,
 ];
 
 const BY_KEY = new Map(INTEGRATION_CATALOG.map((i) => [i.key, i]));

@@ -105,8 +105,8 @@ export default function PhonePage() {
     >
       {!configured ? (
         <p className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-          This instance has no Rinkel API key. Set <code>RINKEL_KEY</code> in the root{' '}
-          <code>.env</code> and restart the api, and the call history appears here.
+          This project has no Rinkel API key. Add one in Settings → Integrations under Services, and
+          the call history appears here.
         </p>
       ) : (
         <div className="space-y-4 pb-8">

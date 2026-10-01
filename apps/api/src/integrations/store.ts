@@ -189,3 +189,24 @@ export async function getCredentialSecret(
   const config = (await decrypt(id, projectId)) ?? {};
   return { integrationKey: existing.integrationKey, config };
 }
+
+// The decrypted config of the project's first credential for an integration, or null
+// when the project has none. Lets a feature read its service key (e.g. Zernio for
+// Social) from the project instead of the environment.
+export async function findCredentialConfig(
+  projectId: number,
+  integrationKey: string,
+): Promise<ToolConfig | null> {
+  const rows = await db
+    .select({ id: integrationCredential.id })
+    .from(integrationCredential)
+    .where(
+      and(
+        eq(integrationCredential.projectId, projectId),
+        eq(integrationCredential.integrationKey, integrationKey),
+      ),
+    )
+    .orderBy(integrationCredential.id)
+    .limit(1);
+  return rows[0] ? decrypt(rows[0].id, projectId) : null;
+}

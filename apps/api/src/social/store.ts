@@ -3,7 +3,7 @@ import { presentPostTimeline, presentSocialDashboard } from './presenters';
 
 const RANGE_DAYS = 30;
 
-export async function getSocialDashboard() {
+export async function getSocialDashboard(apiKey: string) {
   const toDate = new Date();
   const fromDate = new Date(toDate);
   fromDate.setUTCDate(fromDate.getUTCDate() - RANGE_DAYS + 1);
@@ -13,21 +13,21 @@ export async function getSocialDashboard() {
   };
 
   const [accounts, analytics, scheduled, daily, bestTime] = await Promise.all([
-    getZernio('/accounts', { platform: 'instagram' }),
-    getZernio('/analytics', {
+    getZernio(apiKey, '/accounts', { platform: 'instagram' }),
+    getZernio(apiKey, '/analytics', {
       platform: 'instagram',
       source: 'all',
       limit: '100',
       ...dates,
     }),
-    getZernio('/posts', { platform: 'instagram', limit: '100' }),
-    getZernio('/analytics/daily-metrics', {
+    getZernio(apiKey, '/posts', { platform: 'instagram', limit: '100' }),
+    getZernio(apiKey, '/analytics/daily-metrics', {
       platform: 'instagram',
       source: 'all',
       attribution: 'publish',
       ...dates,
     }),
-    getZernio('/analytics/best-time', { platform: 'instagram', source: 'all' }),
+    getZernio(apiKey, '/analytics/best-time', { platform: 'instagram', source: 'all' }),
   ]);
 
   const dashboard = presentSocialDashboard(
@@ -45,7 +45,7 @@ export async function getSocialDashboard() {
   if (featuredPost) {
     try {
       featuredTimeline = presentPostTimeline(
-        await getZernio('/analytics/post-timeline', { postId: featuredPost.id, ...dates }),
+        await getZernio(apiKey, '/analytics/post-timeline', { postId: featuredPost.id, ...dates }),
       );
     } catch {
       featuredTimeline = [];

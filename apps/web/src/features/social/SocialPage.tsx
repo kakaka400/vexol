@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ApiError } from '@/lib/api';
 import SectionPageView from '@/components/common/page/SectionPageView';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useShell } from '@/context/shellContext';
@@ -40,7 +41,10 @@ export default function SocialPage() {
     );
   }
   if (dashboardQuery.isError || !data) {
-    return <SocialErrorState onRetry={() => void dashboardQuery.refetch()} />;
+    // A 503 carries the setup hint (e.g. add a Zernio key under Integrations).
+    const error = dashboardQuery.error;
+    const message = error instanceof ApiError && error.status === 503 ? error.message : undefined;
+    return <SocialErrorState message={message} onRetry={() => void dashboardQuery.refetch()} />;
   }
 
   const counts = {

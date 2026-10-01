@@ -68,8 +68,8 @@ const CallsResponse = t.Object({
 });
 
 const OverviewResponse = t.Object({
-  // False when RINKEL_KEY is missing, so the page can explain itself instead of
-  // showing an error.
+  // False when the project has no Rinkel key (nor RINKEL_KEY), so the page can
+  // explain itself instead of showing an error.
   configured: t.Boolean(),
   numbers: t.Array(
     t.Object({
@@ -110,12 +110,15 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
 
   .get(
     '/projects/:projectKey/phone/overview',
-    async () => {
-      if (!rinkelConfigured()) return { configured: false, numbers: [], newVoicemails: 0 };
+    async ({ project }) => {
+      if (!(await rinkelConfigured(project.id)))
+        return { configured: false, numbers: [], newVoicemails: 0 };
 
       const [numbers, voicemails] = await Promise.all([
-        rinkelGet<RinkelPage<RinkelNumber>>('/numbers'),
-        rinkelGet<RinkelCount>('/voicemails/new-count').catch(() => ({ data: { count: 0 } })),
+        rinkelGet<RinkelPage<RinkelNumber>>(project.id, '/numbers'),
+        rinkelGet<RinkelCount>(project.id, '/voicemails/new-count').catch(() => ({
+          data: { count: 0 },
+        })),
       ]);
       return {
         configured: true,
@@ -141,7 +144,7 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
   .get(
     '/projects/:projectKey/phone/calls',
     async ({ query, project }) => {
-      const page = await rinkelGet<RinkelPage<RinkelCall>>('/call-detail-records', {
+      const page = await rinkelGet<RinkelPage<RinkelCall>>(project.id, '/call-detail-records', {
         page: query.page ?? 1,
         perPage: query.perPage ?? DEFAULT_PER_PAGE,
         direction: query.direction,
@@ -194,8 +197,11 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
   // These two hand back the short-lived url Rinkel issues instead.
   .get(
     '/projects/:projectKey/phone/recordings/:id/stream',
-    ({ params }) =>
-      rinkelGet<RinkelStreamUrl>(`/call-recordings/${encodeURIComponent(params.id)}/stream`),
+    ({ params, project }) =>
+      rinkelGet<RinkelStreamUrl>(
+        project.id,
+        `/call-recordings/${encodeURIComponent(params.id)}/stream`,
+      ),
     {
       params: streamParams,
       permission: ['phone', 'read'],
@@ -213,8 +219,8 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
 
   .get(
     '/projects/:projectKey/phone/voicemails/:id/stream',
-    ({ params }) =>
-      rinkelGet<RinkelStreamUrl>(`/voicemails/${encodeURIComponent(params.id)}/stream`),
+    ({ params, project }) =>
+      rinkelGet<RinkelStreamUrl>(project.id, `/voicemails/${encodeURIComponent(params.id)}/stream`),
     {
       params: streamParams,
       permission: ['phone', 'read'],
@@ -234,8 +240,9 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
   // history carries no audio at all, so the page offers the switch directly.
   .get(
     '/projects/:projectKey/phone/numbers/:id/recording',
-    async ({ params }) => {
+    async ({ params, project }) => {
       const detail = await rinkelGet<RinkelNumberDetail>(
+        project.id,
         `/numbers/${encodeURIComponent(params.id)}`,
       );
       return {
@@ -260,8 +267,9 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
 
   .put(
     '/projects/:projectKey/phone/numbers/:id/recording',
-    async ({ params, body }) => {
+    async ({ params, body, project }) => {
       await rinkelSend(
+        project.id,
         'PUT',
         `/numbers/${encodeURIComponent(params.id)}/dial-plan/v1/call-recording`,
         { enabled: body.enabled },
@@ -287,10 +295,15 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
 
   .put(
     '/projects/:projectKey/phone/calls/:id/note',
-    async ({ params, body }) => {
-      await rinkelSend('PUT', `/call-detail-records/${encodeURIComponent(params.id)}/note`, {
-        content: body.content,
-      });
+    async ({ params, body, project }) => {
+      await rinkelSend(
+        project.id,
+        'PUT',
+        `/call-detail-records/${encodeURIComponent(params.id)}/note`,
+        {
+          content: body.content,
+        },
+      );
       return noContent();
     },
     {
@@ -312,9 +325,10 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
 
   .delete(
     '/projects/:projectKey/phone/calls/:id/note/:noteId',
-    async ({ params }) => {
+    async ({ params, project }) => {
       const noteId = encodeURIComponent(params.noteId);
       await rinkelSend(
+        project.id,
         'DELETE',
         `/call-detail-records/${encodeURIComponent(params.id)}/note/${noteId}`,
       );
@@ -338,8 +352,9 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
   // Rinkel keys the transcription by callId, not by the record id.
   .get(
     '/projects/:projectKey/phone/calls/:id/transcription',
-    async ({ params }) => {
+    async ({ params, project }) => {
       const result = await rinkelGet<RinkelTranscription>(
+        project.id,
         `/call-detail-records/by-call-id/${encodeURIComponent(params.id)}/transcription`,
       );
       return { transcription: result.data.transcription ?? '' };
@@ -361,8 +376,8 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
 
   .post(
     '/projects/:projectKey/phone/block',
-    async ({ body }) => {
-      await rinkelSend('POST', '/privacy/block-number', {
+    async ({ body, project }) => {
+      await rinkelSend(project.id, 'POST', '/privacy/block-number', {
         number: body.number,
         reason: body.reason ?? '',
       });
@@ -390,8 +405,8 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
 
   .delete(
     '/projects/:projectKey/phone/block',
-    async ({ body }) => {
-      await rinkelSend('DELETE', '/privacy/unblock-number', { number: body.number });
+    async ({ body, project }) => {
+      await rinkelSend(project.id, 'DELETE', '/privacy/unblock-number', { number: body.number });
       return noContent();
     },
     {
@@ -416,8 +431,8 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
   // a device on the Rinkel account, which is what this list reports.
   .get(
     '/projects/:projectKey/phone/devices',
-    async () => {
-      const users = await rinkelGet<RinkelPage<RinkelUser>>('/users');
+    async ({ project }) => {
+      const users = await rinkelGet<RinkelPage<RinkelUser>>(project.id, '/users');
       return (users.data ?? [])
         .filter((user): user is RinkelUser & { deviceId: string } => Boolean(user.deviceId))
         .map((user) => ({ deviceId: user.deviceId, name: user.fullName }));
@@ -439,8 +454,8 @@ export const phoneRoutes = new Elysia({ name: 'phone', detail: { tags: ['Phone']
 
   .post(
     '/projects/:projectKey/phone/dial',
-    async ({ body }) => {
-      await rinkelSend('POST', '/dial', {
+    async ({ body, project }) => {
+      await rinkelSend(project.id, 'POST', '/dial', {
         deviceId: body.deviceId,
         to: body.to,
         numberId: body.numberId,

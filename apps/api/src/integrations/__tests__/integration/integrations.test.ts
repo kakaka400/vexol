@@ -35,6 +35,7 @@ describe('integrations', () => {
           kind: 'tool',
           tools: expect.arrayContaining([expect.objectContaining({ key: 'jina_reader' })]),
         }),
+        expect.objectContaining({ key: 'zernio', kind: 'service', tools: [] }),
       ]),
     );
   });
