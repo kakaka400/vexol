@@ -94,8 +94,9 @@ services:
       HERMES_BOB_API_KEY: ${HERMES_BOB_API_KEY:?set the default-profile Hermes API_SERVER_KEY in Coolify}
       HERMES_VERA_PROJECT_KEY: ${HERMES_VERA_PROJECT_KEY:-}
       HERMES_VERA_API_KEY: ${HERMES_VERA_API_KEY:-}
-      ZERNIO_API: ${ZERNIO_API:?set the server-side Zernio API key in Coolify}
-      ZERNIO_PROJECT_KEY: ${ZERNIO_PROJECT_KEY:?set the project key allowed to access Social}
+      # Optional fallback: a project's Zernio key is normally added in Settings → Integrations.
+      ZERNIO_API: ${ZERNIO_API:-}
+      ZERNIO_PROJECT_KEY: ${ZERNIO_PROJECT_KEY:-}
       BETTER_AUTH_SECRET: ${SERVICE_PASSWORD_64_BETTERAUTH}
       # Encrypts stored AI provider API keys at rest (AES-256-GCM). Changing it makes
       # existing stored credentials undecryptable.

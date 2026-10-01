@@ -5,10 +5,15 @@ import { Input } from '@/components/ui/input';
 import { IntegrationIcon } from './IntegrationIcon';
 
 // The groups the catalog is split into, in display order. LLM providers first, tool
-// integrations second.
+// integrations second, the data sources project features read last.
 const GROUPS: { kind: IntegrationMeta['kind']; title: string; hint: string }[] = [
   { kind: 'llm', title: 'AI providers', hint: 'The model an internal agent runs on' },
   { kind: 'tool', title: 'Tools', hint: 'Integrations an agent can call as tools' },
+  {
+    kind: 'service',
+    title: 'Services',
+    hint: 'Data sources for project pages like Social and Phone',
+  },
 ];
 
 // Step one of adding a credential: pick the integration. The catalog is long (~150 LLM

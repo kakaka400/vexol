@@ -364,11 +364,12 @@ export interface ConfigField {
 
 // An integration the project can store a credential for (server-side catalog). `kind`
 // 'llm' is an AI provider (its models an agent runs on, no tools); 'tool' is a tool
-// integration whose `tools` are configured on a credential.
+// integration whose `tools` are configured on a credential; 'service' is a data source
+// a project feature reads with the stored key (Zernio for Social, Rinkel for Phone).
 export interface IntegrationMeta {
   key: string;
   label: string;
-  kind: 'llm' | 'tool';
+  kind: 'llm' | 'tool' | 'service';
   credentialSchema: ConfigField[];
   tools: {
     key: string;

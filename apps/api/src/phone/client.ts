@@ -1,26 +1,36 @@
 import { HttpError } from '../shared/lib';
+import { findCredentialConfig } from '../integrations/store';
 
 // Read-through client for the Rinkel telephony API. Nothing about the business
 // number is stored here: every read goes straight to Rinkel, so the dashboard can
 // never show a stale copy of the call history.
 //
-// The key is an instance-wide secret in RINKEL_KEY, not a per-project credential,
-// because one self-hosted instance serves one Rinkel account.
+// The key is the project's Rinkel credential from Settings → Integrations, falling
+// back to the instance-wide RINKEL_KEY env secret.
 
 const BASE_URL = 'https://api.rinkel.com/v1';
 const REQUEST_TIMEOUT_MS = 20_000;
 
-export function rinkelConfigured(): boolean {
-  return Boolean(process.env.RINKEL_KEY);
+async function findKey(projectId: number): Promise<string | null> {
+  const stored = await findCredentialConfig(projectId, 'rinkel');
+  if (typeof stored?.apiKey === 'string' && stored.apiKey) return stored.apiKey;
+  return process.env.RINKEL_KEY || null;
 }
 
-function apiKey(): string {
-  const key = process.env.RINKEL_KEY;
-  if (!key) throw new HttpError(503, 'RINKEL_KEY is not set on this instance');
+export async function rinkelConfigured(projectId: number): Promise<boolean> {
+  return (await findKey(projectId)) !== null;
+}
+
+async function apiKey(projectId: number): Promise<string> {
+  const key = await findKey(projectId);
+  if (!key) {
+    throw new HttpError(503, 'Add a Rinkel API key in Settings → Integrations to enable Phone');
+  }
   return key;
 }
 
 export async function rinkelGet<T>(
+  projectId: number,
   path: string,
   query: Record<string, string | number | boolean | undefined> = {},
 ): Promise<T> {
@@ -31,7 +41,7 @@ export async function rinkelGet<T>(
 
   // Resolved before the try: a missing key is a configuration problem, not a
   // network one, and must not be reported as "could not reach Rinkel".
-  const key = apiKey();
+  const key = await apiKey(projectId);
 
   let res: Response;
   try {
@@ -59,11 +69,12 @@ export async function rinkelGet<T>(
 // A write against Rinkel. The endpoints used here answer 204 with no body, so
 // nothing is parsed back.
 export async function rinkelSend(
+  projectId: number,
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<void> {
-  const key = apiKey();
+  const key = await apiKey(projectId);
 
   let res: Response;
   try {

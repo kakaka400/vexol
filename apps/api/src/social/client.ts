@@ -2,10 +2,7 @@ import { HttpError } from '../shared/lib';
 
 const ZERNIO_API_URL = 'https://zernio.com/api/v1';
 
-export async function getZernio(path: string, query: Record<string, string>) {
-  const apiKey = process.env.ZERNIO_API;
-  if (!apiKey) throw new HttpError(503, 'Social data source is not configured');
-
+export async function getZernio(apiKey: string, path: string, query: Record<string, string>) {
   const url = new URL(`${ZERNIO_API_URL}${path}`);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
 
