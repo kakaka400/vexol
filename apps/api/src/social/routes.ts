@@ -1,9 +1,8 @@
 import { Elysia, t } from 'elysia';
 import { guards } from '../shared/guards';
-import { HttpError } from '../shared/lib';
 import { ErrorResponse } from '../shared/responses';
-import { findCredentialConfig } from '../integrations/store';
 import { getSocialDashboard } from './store';
+import { resolveZernioKey } from './zernio-key';
 
 const MetricsResponse = t.Object({
   reach: t.Number(),
@@ -73,20 +72,6 @@ const DashboardResponse = t.Object({
   featuredPostId: t.Nullable(t.String()),
   featuredTimeline: t.Array(t.Object({ date: t.String(), views: t.Number(), reach: t.Number() })),
 });
-
-// The Zernio key for a project: its own credential from Settings → Integrations,
-// else the instance-wide ZERNIO_API env key, which only serves ZERNIO_PROJECT_KEY.
-async function resolveZernioKey(project: { id: number; key: string }): Promise<string> {
-  const stored = await findCredentialConfig(project.id, 'zernio');
-  if (typeof stored?.apiKey === 'string' && stored.apiKey) return stored.apiKey;
-
-  const envKey = process.env.ZERNIO_API;
-  const envProject = process.env.ZERNIO_PROJECT_KEY;
-  if (envKey && envProject && envProject.toLowerCase() === project.key.toLowerCase()) {
-    return envKey;
-  }
-  throw new HttpError(503, 'Add a Zernio API key in Settings → Integrations to enable Social');
-}
 
 export const socialRoutes = new Elysia({ name: 'social', detail: { tags: ['Social'] } })
   .use(guards)

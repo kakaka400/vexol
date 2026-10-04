@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { api, type StudioTemplatePatch } from '@/lib/api';
+import {
+  api,
+  type StudioDraft,
+  type StudioPublishTarget,
+  type StudioTemplatePatch,
+} from '@/lib/api';
 import { qk } from '@/services/queryKeys';
 
 export function useStudioTemplatesQuery(projectKey: string) {
@@ -47,11 +52,69 @@ export function useUploadStudioTemplatePhoto(projectKey: string) {
   });
 }
 
+// Vera adds drafts from outside this page, so the list refetches like the images.
 export function useStudioDraftsQuery(projectKey: string) {
   return useQuery({
     queryKey: qk.studioDrafts(projectKey),
     queryFn: () => api.listStudioDrafts(projectKey),
     enabled: projectKey.length > 0,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useStudioPublishAccountsQuery(projectKey: string, enabled: boolean) {
+  return useQuery({
+    queryKey: qk.studioPublishAccounts(projectKey),
+    queryFn: () => api.listStudioPublishAccounts(projectKey),
+    enabled: enabled && projectKey.length > 0,
+    retry: false,
+  });
+}
+
+// Scheduling is a person's decision, so it also records the approval the API
+// requires: a draft is sent for review and approved first when it is not yet.
+export function useScheduleStudioDraft(projectKey: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      draft: Pick<StudioDraft, 'id' | 'status' | 'currentVersion'>;
+      scheduledFor: string;
+      timezone: string;
+      targets: StudioPublishTarget[];
+    }) => {
+      // Read fresh: a retry after a failed hand-off finds the draft already approved.
+      const draft = await api.getStudioDraft(projectKey, input.draft.id);
+      const version = input.draft.currentVersion;
+      if (draft.currentVersion !== version) {
+        throw new Error('The draft changed in the meantime. Open it to see the new version.');
+      }
+      if (draft.status === 'draft') {
+        await api.studioDraftAction(projectKey, draft.id, 'request-review', { version });
+      }
+      if (draft.status === 'draft' || draft.status === 'review_requested') {
+        await api.studioDraftAction(projectKey, draft.id, 'review', {
+          version,
+          decision: 'approved',
+        });
+      }
+      return api.studioDraftAction(projectKey, draft.id, 'schedule', {
+        version,
+        scheduledFor: input.scheduledFor,
+        timezone: input.timezone,
+        targets: input.targets,
+      });
+    },
+    onSuccess: (draft) => {
+      queryClient.setQueryData(qk.studioDraft(projectKey, draft.id), draft);
+      toast.success('Post scheduled');
+    },
+    // Approval may have gone through even when scheduling failed; reload either way.
+    onSettled: (_data, _error, input) => {
+      void queryClient.invalidateQueries({ queryKey: qk.studioDrafts(projectKey) });
+      void queryClient.invalidateQueries({
+        queryKey: qk.studioDraft(projectKey, input.draft.id),
+      });
+    },
   });
 }
 

@@ -4,7 +4,7 @@ import { Providers } from '@/components/providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: "It's a Plan: issue tracking for people and agents",
+  title: 'VexolEU Dashboard',
   description:
     'A self-hosted, open-source issue tracker with AI agents built in. Assign work to people or agents, and drive it through the API, webhooks and MCP.',
 };

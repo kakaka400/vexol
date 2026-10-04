@@ -5,6 +5,9 @@ import { guards } from '../shared/guards';
 import { HttpError } from '../shared/lib';
 import { ErrorResponse } from '../shared/responses';
 import { isAgentUser } from '../ai-agents/store';
+import { mcpTool } from '../mcp/generate';
+import { resolveZernioKey } from '../social/zernio-key';
+import { listPublishAccounts, schedulePost } from './publish';
 import {
   addStudioDraftVersion,
   createStudioDraft,
@@ -43,8 +46,26 @@ const DraftSummary = t.Object({
   templateSlot: t.Nullable(t.Number()),
   imageUrl: t.Nullable(t.String()),
   createdByName: t.Nullable(t.String()),
+  createdByAgent: t.Boolean(),
+  scheduledFor: t.Nullable(t.String()),
   createdAt: t.String(),
   updatedAt: t.String(),
+});
+
+const Format = t.Union([t.Literal('post'), t.Literal('story'), t.Literal('reel')]);
+const Target = t.Object({
+  accountId: t.String({ minLength: 1, maxLength: 64 }),
+  platform: t.String({ minLength: 1, maxLength: 32 }),
+  format: Format,
+});
+
+const PublishAccount = t.Object({
+  id: t.String(),
+  platform: t.String(),
+  username: t.String(),
+  displayName: t.String(),
+  profilePicture: t.Nullable(t.String()),
+  connected: t.Boolean(),
 });
 
 const DraftDetail = t.Composite([
@@ -76,6 +97,8 @@ const DraftDetail = t.Composite([
         version: t.Number(),
         scheduledFor: t.String(),
         timezone: t.String(),
+        targets: t.Array(Target),
+        zernioPostId: t.Nullable(t.String()),
         createdByName: t.Nullable(t.String()),
         createdAt: t.String(),
       }),
@@ -127,8 +150,23 @@ export const studioDraftRoutes = new Elysia({
     params: projectParams,
     permission: ['studio', 'read'],
     response: { 200: t.Array(DraftSummary), ...errors },
-    detail: { summary: 'List Studio drafts, most recently changed first' },
+    detail: {
+      summary: 'List Studio drafts, most recently changed first',
+      ...mcpTool('list_studio_drafts'),
+    },
   })
+
+  // The social accounts connected in Zernio, which a draft can be scheduled to.
+  .get(
+    '/projects/:projectKey/studio/publish-accounts',
+    async ({ project }) => listPublishAccounts(await resolveZernioKey(project)),
+    {
+      params: projectParams,
+      permission: ['studio', 'read'],
+      response: { 200: t.Array(PublishAccount), ...errors, 502: ErrorResponse, 503: ErrorResponse },
+      detail: { summary: 'List the social accounts a draft can be scheduled to' },
+    },
+  )
 
   .post(
     '/projects/:projectKey/studio/drafts',
@@ -152,7 +190,12 @@ export const studioDraftRoutes = new Elysia({
       }),
       permission: ['studio', 'create'],
       response: { 201: DraftDetail, ...errors },
-      detail: { summary: 'Create a Studio draft' },
+      detail: {
+        summary: 'Create a Studio draft',
+        description:
+          'Create a draft post: the caption, and the id of a Studio image (from create_studio_post) as postId with its template slot. idempotencyKey is a new random UUID per draft.',
+        ...mcpTool('create_studio_draft'),
+      },
     },
   )
 
@@ -163,7 +206,10 @@ export const studioDraftRoutes = new Elysia({
       params: draftParams,
       permission: ['studio', 'read'],
       response: { 200: DraftDetail, ...errors },
-      detail: { summary: 'Get a Studio draft with its versions, reviews and schedule' },
+      detail: {
+        summary: 'Get a Studio draft with its versions, reviews and schedule',
+        ...mcpTool('get_studio_draft'),
+      },
     },
   )
 
@@ -184,7 +230,12 @@ export const studioDraftRoutes = new Elysia({
       body: t.Object({ ...contentFields, baseVersion: t.Integer({ minimum: 1 }) }),
       permission: ['studio', 'edit'],
       response: { 200: DraftDetail, ...errors },
-      detail: { summary: 'Save new content as the next version of a draft' },
+      detail: {
+        summary: 'Save new content as the next version of a draft',
+        description:
+          'Save changed content as the next version. baseVersion is the current version you read; the draft returns to the draft state.',
+        ...mcpTool('update_studio_draft'),
+      },
     },
   )
 
@@ -199,7 +250,10 @@ export const studioDraftRoutes = new Elysia({
       body: t.Object({ version: t.Integer({ minimum: 1 }) }),
       permission: ['studio', 'edit'],
       response: { 200: DraftDetail, ...errors },
-      detail: { summary: 'Send the current version of a draft for human review' },
+      detail: {
+        summary: 'Send the current version of a draft for human review',
+        ...mcpTool('request_studio_draft_review'),
+      },
     },
   )
 
@@ -241,18 +295,37 @@ export const studioDraftRoutes = new Elysia({
   .post(
     '/projects/:projectKey/studio/drafts/:draftId/schedule',
     async ({ project, params, body, user }) => {
+      const caller = requireUser(user);
+      // Publishing goes out under the business's own accounts: a person decides.
+      if (await isAgentUser(caller.id)) {
+        throw new HttpError(403, 'Only a person can schedule a draft');
+      }
       if (!isTimeZone(body.timezone)) throw new HttpError(400, 'Unknown time zone');
       const scheduledFor = new Date(body.scheduledFor);
       if (scheduledFor.getTime() <= Date.now()) {
         throw new HttpError(400, 'The scheduled time must be in the future');
       }
+      const accounts = new Set(body.targets.map((target) => target.accountId));
+      if (accounts.size !== body.targets.length) {
+        throw new HttpError(400, 'An account can be chosen only once');
+      }
+      const apiKey = await resolveZernioKey(project);
       await scheduleStudioDraft({
         projectId: project.id,
         draftId: params.draftId,
         version: body.version,
         scheduledFor,
         timezone: body.timezone,
-        userId: requireUser(user).id,
+        targets: body.targets,
+        userId: caller.id,
+        publish: (content) =>
+          schedulePost(apiKey, {
+            ...content,
+            targets: body.targets,
+            scheduledFor,
+            timezone: body.timezone,
+            idempotencyKey: `studio-${params.draftId}-v${body.version}`,
+          }),
       });
       return detail(project.id, params.draftId);
     },
@@ -262,9 +335,10 @@ export const studioDraftRoutes = new Elysia({
         version: t.Integer({ minimum: 1 }),
         scheduledFor: t.String({ format: 'date-time' }),
         timezone: t.String({ minLength: 1, maxLength: 64 }),
+        targets: t.Array(Target, { minItems: 1, maxItems: 10 }),
       }),
       permission: ['studio', 'edit'],
-      response: { 200: DraftDetail, ...errors },
-      detail: { summary: 'Schedule the approved version of a draft' },
+      response: { 200: DraftDetail, ...errors, 502: ErrorResponse, 503: ErrorResponse },
+      detail: { summary: 'Schedule the approved version of a draft through Zernio' },
     },
   );

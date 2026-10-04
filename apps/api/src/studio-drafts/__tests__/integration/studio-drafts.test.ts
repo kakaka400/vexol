@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { apiKeyApi, authedApi, type Api } from '../../../__tests__/helpers/app';
 import { signUpTestUser } from '../../../__tests__/helpers/auth';
 import { resetDb } from '../../../__tests__/helpers/db';
@@ -6,6 +6,38 @@ import { resetDb } from '../../../__tests__/helpers/db';
 const drafts = (api: Api, projectKey = 'MKT') => api.projects({ projectKey }).studio.drafts;
 
 const tomorrow = () => new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+
+const LINKEDIN = [{ accountId: 'acc_li', platform: 'linkedin', format: 'post' as const }];
+
+// Zernio is the only thing reached over the network. Each call is recorded, and a
+// test can make the next post creation fail.
+const realFetch = globalThis.fetch;
+let zernioCalls: { method: string; path: string; headers: Headers; body: unknown }[] = [];
+let zernioFailure: { status: number; body: unknown } | null = null;
+
+function mockZernio() {
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.host !== 'zernio.com') return realFetch(input, init);
+    const method = init?.method ?? 'GET';
+    zernioCalls.push({
+      method,
+      path: url.pathname,
+      headers: new Headers(init?.headers),
+      body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    if (url.pathname.endsWith('/accounts')) {
+      return Response.json({
+        accounts: [
+          { _id: 'acc_ig', platform: 'instagram', username: 'vexol', displayName: 'Vexol' },
+          { _id: 'acc_li', platform: 'linkedin', username: 'vexol-li', needsReconnection: true },
+        ],
+      });
+    }
+    if (zernioFailure) return Response.json(zernioFailure.body, { status: zernioFailure.status });
+    return Response.json({ post: { _id: 'zp_1', status: 'scheduled' } }, { status: 201 });
+  }) as typeof fetch;
+}
 
 async function setup() {
   const owner = await signUpTestUser({ name: 'Owner' });
@@ -27,8 +59,43 @@ async function approvedDraft(api: Api) {
   return draft;
 }
 
+// An external agent like Vera, with a role that can make and edit drafts.
+async function veraAgent(asOwner: Api) {
+  const role = await asOwner.projects({ projectKey: 'MKT' }).roles.post({
+    name: 'Studio editor',
+    permissions: { studio: { read: true, create: true, edit: true } },
+  });
+  const vera = await asOwner.projects({ projectKey: 'MKT' })['ai-agents'].post({
+    name: 'Vera',
+    username: 'vera',
+    kind: 'external',
+    roleId: role.data!.id,
+  });
+  return apiKeyApi(vera.data!.apiKey!);
+}
+
 describe('Studio drafts', () => {
-  beforeEach(resetDb);
+  const env = { api: process.env.ZERNIO_API, project: process.env.ZERNIO_PROJECT_KEY };
+
+  beforeEach(async () => {
+    await resetDb();
+    zernioCalls = [];
+    zernioFailure = null;
+    process.env.ZERNIO_API = 'zk-test';
+    process.env.ZERNIO_PROJECT_KEY = 'MKT';
+    mockZernio();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    for (const [name, value] of [
+      ['ZERNIO_API', env.api],
+      ['ZERNIO_PROJECT_KEY', env.project],
+    ] as const) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
 
   it('takes a draft from idea to a scheduled, approved version', async () => {
     const { asOwner } = await setup();
@@ -39,6 +106,7 @@ describe('Studio drafts', () => {
     const approved = await byId.review.post({ version: 1, decision: 'approved' });
     const scheduledFor = tomorrow();
     const scheduled = await byId.schedule.post({
+      targets: LINKEDIN,
       version: 1,
       scheduledFor,
       timezone: 'Europe/Amsterdam',
@@ -81,7 +149,12 @@ describe('Studio drafts', () => {
     const draft = await createDraft(asOwner);
     const byId = drafts(asOwner)({ draftId: draft.id });
     const schedule = () =>
-      byId.schedule.post({ version: 1, scheduledFor: tomorrow(), timezone: 'UTC' });
+      byId.schedule.post({
+        targets: LINKEDIN,
+        version: 1,
+        scheduledFor: tomorrow(),
+        timezone: 'UTC',
+      });
 
     const asDraft = await schedule();
     await byId['request-review'].post({ version: 1 });
@@ -109,11 +182,13 @@ describe('Studio drafts', () => {
 
     const edited = await byId.versions.post({ baseVersion: 1, caption: 'Autumn launch, v2' });
     const scheduleNew = await byId.schedule.post({
+      targets: LINKEDIN,
       version: 2,
       scheduledFor: tomorrow(),
       timezone: 'UTC',
     });
     const scheduleOld = await byId.schedule.post({
+      targets: LINKEDIN,
       version: 1,
       scheduledFor: tomorrow(),
       timezone: 'UTC',
@@ -151,7 +226,12 @@ describe('Studio drafts', () => {
     const { asOwner } = await setup();
     const draft = await approvedDraft(asOwner);
     const byId = drafts(asOwner)({ draftId: draft.id });
-    await byId.schedule.post({ version: 1, scheduledFor: tomorrow(), timezone: 'UTC' });
+    await byId.schedule.post({
+      targets: LINKEDIN,
+      version: 1,
+      scheduledFor: tomorrow(),
+      timezone: 'UTC',
+    });
 
     const edit = await byId.versions.post({ baseVersion: 1, caption: 'Changed' });
 
@@ -180,7 +260,152 @@ describe('Studio drafts', () => {
     expect(review.status).toBe(403);
     expect(review.error?.value).toEqual({ error: 'Only a person can review a draft' });
     const detail = await drafts(asOwner)({ draftId: draft.id }).get();
-    expect(detail.data).toMatchObject({ status: 'review_requested', createdByName: 'Vera' });
+    expect(detail.data).toMatchObject({
+      status: 'review_requested',
+      createdByName: 'Vera',
+      createdByAgent: true,
+    });
+  });
+
+  it('marks drafts made by an agent, and only those', async () => {
+    const { asOwner } = await setup();
+    await createDraft(asOwner, 'By a person');
+    const asVera = await veraAgent(asOwner);
+    await createDraft(asVera, 'By Vera');
+
+    const listed = await drafts(asOwner).get();
+    const byCaption = Object.fromEntries(
+      (listed.data ?? []).map((row) => [row.caption, row.createdByAgent]),
+    );
+    expect(byCaption).toEqual({ 'By a person': false, 'By Vera': true });
+  });
+
+  it('does not let an agent schedule a draft', async () => {
+    const { asOwner } = await setup();
+    const asVera = await veraAgent(asOwner);
+    const draft = await approvedDraft(asOwner);
+
+    const scheduled = await drafts(asVera)({ draftId: draft.id }).schedule.post({
+      targets: LINKEDIN,
+      version: 1,
+      scheduledFor: tomorrow(),
+      timezone: 'UTC',
+    });
+
+    expect(scheduled.status).toBe(403);
+    expect(zernioCalls).toHaveLength(0);
+  });
+
+  it('hands the approved version to Zernio once, at the wall-clock time of its zone', async () => {
+    const { asOwner } = await setup();
+    const draft = await approvedDraft(asOwner);
+    const scheduledFor = new Date(Date.now() + 2 * 24 * 60 * 60_000);
+    scheduledFor.setUTCHours(8, 30, 0, 0);
+
+    const scheduled = await drafts(asOwner)({ draftId: draft.id }).schedule.post({
+      version: 1,
+      scheduledFor: scheduledFor.toISOString(),
+      timezone: 'Europe/Amsterdam',
+      targets: LINKEDIN,
+    });
+
+    expect(scheduled.status).toBe(200);
+    expect(scheduled.data?.schedule).toMatchObject({ targets: LINKEDIN, zernioPostId: 'zp_1' });
+    expect(zernioCalls).toHaveLength(1);
+    const call = zernioCalls[0]!;
+    expect(call).toMatchObject({ method: 'POST', path: '/api/v1/posts' });
+    expect(call.headers.get('authorization')).toBe('Bearer zk-test');
+    expect(call.headers.get('idempotency-key')).toBe(`studio-${draft.id}-v1`);
+    const wall = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Amsterdam',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(scheduledFor);
+    expect(call.body).toMatchObject({
+      content: 'Autumn launch',
+      mediaItems: [],
+      platforms: [{ platform: 'linkedin', accountId: 'acc_li' }],
+      timezone: 'Europe/Amsterdam',
+    });
+    expect((call.body as { scheduledFor: string }).scheduledFor).toEndWith(`T${wall}:00`);
+  });
+
+  it('refuses Instagram content it cannot post, before calling Zernio', async () => {
+    const { asOwner } = await setup();
+    const draft = await approvedDraft(asOwner);
+    const schedule = (targets: { accountId: string; platform: string; format: string }[]) =>
+      drafts(asOwner)({ draftId: draft.id }).schedule.post({
+        version: 1,
+        scheduledFor: tomorrow(),
+        timezone: 'UTC',
+        targets: targets as typeof LINKEDIN,
+      });
+
+    const noImage = await schedule([
+      { accountId: 'acc_ig', platform: 'instagram', format: 'post' },
+    ]);
+    const reel = await schedule([{ accountId: 'acc_ig', platform: 'instagram', format: 'reel' }]);
+    const storyElsewhere = await schedule([
+      { accountId: 'acc_li', platform: 'linkedin', format: 'story' },
+    ]);
+    const twice = await schedule([...LINKEDIN, ...LINKEDIN]);
+
+    expect(noImage.status).toBe(400);
+    expect(reel.status).toBe(400);
+    expect(reel.error?.value).toEqual({
+      error: 'An Instagram Reel needs a video. Studio images can go out as a post or a story.',
+    });
+    expect(storyElsewhere.status).toBe(400);
+    expect(twice.status).toBe(400);
+    expect(zernioCalls).toHaveLength(0);
+    expect((await drafts(asOwner)({ draftId: draft.id }).get()).data?.status).toBe('approved');
+  });
+
+  it("keeps the draft approved when Zernio refuses, with Zernio's reason", async () => {
+    const { asOwner } = await setup();
+    const draft = await approvedDraft(asOwner);
+    zernioFailure = { status: 422, body: { error: 'Account acc_li is disconnected' } };
+
+    const scheduled = await drafts(asOwner)({ draftId: draft.id }).schedule.post({
+      version: 1,
+      scheduledFor: tomorrow(),
+      timezone: 'UTC',
+      targets: LINKEDIN,
+    });
+
+    expect(scheduled.status).toBe(502);
+    expect(scheduled.error?.value).toEqual({
+      error: 'Zernio refused: Account acc_li is disconnected',
+    });
+    const detail = await drafts(asOwner)({ draftId: draft.id }).get();
+    expect(detail.data).toMatchObject({ status: 'approved', schedule: null });
+  });
+
+  it('lists the Zernio accounts a draft can go to', async () => {
+    const { asOwner } = await setup();
+
+    const accounts = await asOwner.projects({ projectKey: 'MKT' }).studio['publish-accounts'].get();
+
+    expect(accounts.status).toBe(200);
+    expect(accounts.data).toEqual([
+      {
+        id: 'acc_ig',
+        platform: 'instagram',
+        username: 'vexol',
+        displayName: 'Vexol',
+        profilePicture: null,
+        connected: true,
+      },
+      {
+        id: 'acc_li',
+        platform: 'linkedin',
+        username: 'vexol-li',
+        displayName: '',
+        profilePicture: null,
+        connected: false,
+      },
+    ]);
   });
 
   it('keeps drafts inside their project', async () => {
@@ -259,11 +484,13 @@ describe('Studio drafts', () => {
     const draft = await approvedDraft(asOwner);
     const byId = drafts(asOwner)({ draftId: draft.id });
     const zone = await byId.schedule.post({
+      targets: LINKEDIN,
       version: 1,
       scheduledFor: tomorrow(),
       timezone: 'Mars/Olympus',
     });
     const past = await byId.schedule.post({
+      targets: LINKEDIN,
       version: 1,
       scheduledFor: new Date(Date.now() - 60_000).toISOString(),
       timezone: 'UTC',

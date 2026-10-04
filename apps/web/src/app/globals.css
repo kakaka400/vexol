@@ -573,3 +573,74 @@
     background-position: -200% 0;
   }
 }
+
+/* Assistant orb: the agent's presence on the chat welcome screen. A graphite sphere
+   built from the theme's own foreground/background, so it stays monochrome and
+   inverts with the theme. A slow conic layer turns underneath the gloss. */
+.assistant-orb {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle at 50% 120%,
+    color-mix(in oklch, var(--foreground) 70%, var(--background)) 0%,
+    color-mix(in oklch, var(--foreground) 22%, var(--background)) 70%
+  );
+  box-shadow:
+    0 14px 36px -10px color-mix(in oklch, var(--foreground) 40%, transparent),
+    inset 0 -8px 16px color-mix(in oklch, var(--foreground) 22%, transparent),
+    inset 0 2px 3px color-mix(in oklch, var(--background) 70%, transparent);
+}
+.assistant-orb::before {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  z-index: -1;
+  background: conic-gradient(
+    from 0deg,
+    color-mix(in oklch, var(--foreground) 60%, var(--background)),
+    color-mix(in oklch, var(--foreground) 8%, var(--background)),
+    color-mix(in oklch, var(--foreground) 40%, var(--background)),
+    color-mix(in oklch, var(--foreground) 12%, var(--background)),
+    color-mix(in oklch, var(--foreground) 60%, var(--background))
+  );
+  filter: blur(8px);
+  opacity: 0.85;
+  animation: assistant-orb-turn 14s linear infinite;
+}
+.assistant-orb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 32% 24%,
+    color-mix(in oklch, var(--background) 85%, transparent) 0%,
+    transparent 42%
+  );
+}
+
+/* Soft light pooled under the orb and around the composer: a blurred foreground
+   tint at a few percent, the monochrome stand-in for a coloured glow. */
+.assistant-glow {
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in oklch, var(--foreground) 9%, transparent) 0%,
+    transparent 70%
+  );
+  filter: blur(24px);
+}
+
+@keyframes assistant-orb-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-orb::before {
+    animation: none;
+  }
+}

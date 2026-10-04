@@ -2008,6 +2008,10 @@ export const studioSchedule = pgTable(
     reviewDecision: text('review_decision').notNull().default('approved'),
     scheduledFor: timestamp('scheduled_for', { withTimezone: true }).notNull(),
     timezone: text('timezone').notNull(),
+    // The social accounts the post goes out to through Zernio, and the post Zernio
+    // created for them. Empty and null for schedules made before publishing existed.
+    targets: jsonb('targets').notNull().default([]),
+    zernioPostId: text('zernio_post_id'),
     createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

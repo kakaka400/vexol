@@ -32,7 +32,6 @@ export default function StudioDraftList({
         <TableHeader>
           <TableRow>
             <TableHead>Caption</TableHead>
-            <TableHead>Platform</TableHead>
             <TableHead>Version</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Updated</TableHead>
@@ -46,7 +45,6 @@ export default function StudioDraftList({
                   {draft.caption}
                 </button>
               </TableCell>
-              <TableCell>Instagram</TableCell>
               <TableCell>v{draft.currentVersion}</TableCell>
               <TableCell>
                 <StudioDraftStatusBadge status={draft.status} />

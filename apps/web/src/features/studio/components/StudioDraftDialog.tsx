@@ -27,7 +27,7 @@ export default function StudioDraftDialog({
     <Dialog open={draftId != null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Instagram draft</DialogTitle>
+          <DialogTitle>Draft</DialogTitle>
           <DialogDescription>
             Every edit is a new version. Only an approved version can be scheduled.
           </DialogDescription>

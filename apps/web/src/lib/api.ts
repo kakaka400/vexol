@@ -2909,8 +2909,30 @@ export interface StudioDraft {
   templateSlot: number | null;
   imageUrl: string | null;
   createdByName: string | null;
+  // True when an agent (Vera) made the draft rather than a person.
+  createdByAgent: boolean;
+  scheduledFor: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// How a post goes out on Instagram. Other platforms only take 'post'.
+export type StudioPublishFormat = 'post' | 'story' | 'reel';
+
+export interface StudioPublishTarget {
+  accountId: string;
+  platform: string;
+  format: StudioPublishFormat;
+}
+
+// A social account connected in Zernio.
+export interface StudioPublishAccount {
+  id: string;
+  platform: string;
+  username: string;
+  displayName: string;
+  profilePicture: string | null;
+  connected: boolean;
 }
 
 export interface StudioDraftDetail extends StudioDraft {
@@ -2935,6 +2957,8 @@ export interface StudioDraftDetail extends StudioDraft {
     version: number;
     scheduledFor: string;
     timezone: string;
+    targets: StudioPublishTarget[];
+    zernioPostId: string | null;
     createdByName: string | null;
     createdAt: string;
   } | null;
@@ -3557,6 +3581,10 @@ export const api = {
     request<void>(`/studio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }),
   listStudioDrafts: (projectKey: string) =>
     request<StudioDraft[]>(`/projects/${encodeURIComponent(projectKey)}/studio/drafts`),
+  listStudioPublishAccounts: (projectKey: string) =>
+    request<StudioPublishAccount[]>(
+      `/projects/${encodeURIComponent(projectKey)}/studio/publish-accounts`,
+    ),
   getStudioDraft: (projectKey: string, draftId: string) =>
     request<StudioDraftDetail>(
       `/projects/${encodeURIComponent(projectKey)}/studio/drafts/${encodeURIComponent(draftId)}`,
