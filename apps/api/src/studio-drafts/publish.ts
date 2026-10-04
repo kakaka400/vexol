@@ -27,7 +27,8 @@ function text(value: unknown): string {
 
 export async function listPublishAccounts(apiKey: string): Promise<PublishAccount[]> {
   const payload = (await zernioRequest(apiKey, 'GET', '/accounts', {
-    query: { limit: '100' },
+    // Zernio refuses a limit without a page ("page and limit must be provided together").
+    query: { page: '1', limit: '100' },
   })) as { accounts?: unknown };
   const accounts = Array.isArray(payload?.accounts) ? payload.accounts : [];
   return accounts
