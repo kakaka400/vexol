@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import {
+  aiAgent,
   db,
   hermesConversation,
+  projectFile,
   studioDraft,
   studioDraftVersion,
   studioPost,
@@ -12,6 +14,7 @@ import {
 } from '@repo/db';
 import { HttpError, iso, pgErrorCode } from '../shared/lib';
 import { studioImageUrl } from '../studio/dto';
+import type { PublishTarget } from './publish';
 
 export type StudioDraftStatus =
   'draft' | 'review_requested' | 'approved' | 'rejected' | 'scheduled';
@@ -31,6 +34,9 @@ export interface StudioDraftSummary {
   templateSlot: number | null;
   imageUrl: string | null;
   createdByName: string | null;
+  // True when an agent (Vera) made the draft rather than a person.
+  createdByAgent: boolean;
+  scheduledFor: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -57,6 +63,8 @@ export interface StudioDraftDetail extends StudioDraftSummary {
     version: number;
     scheduledFor: string;
     timezone: string;
+    targets: PublishTarget[];
+    zernioPostId: string | null;
     createdByName: string | null;
     createdAt: string;
   } | null;
@@ -250,13 +258,43 @@ export async function reviewStudioDraft(input: {
   });
 }
 
+// What a version publishes: its caption and, when it has one, its image with the
+// public URL Zernio fetches it from.
+async function versionContent(tx: Tx, draftId: string, version: number) {
+  const [row] = await tx
+    .select({
+      caption: studioDraftVersion.caption,
+      postPublicId: studioPost.publicId,
+      contentType: projectFile.contentType,
+    })
+    .from(studioDraftVersion)
+    .leftJoin(studioPost, eq(studioPost.id, studioDraftVersion.postId))
+    .leftJoin(projectFile, eq(projectFile.id, studioPost.imageFileId))
+    .where(and(eq(studioDraftVersion.draftId, draftId), eq(studioDraftVersion.version, version)));
+  return {
+    caption: row!.caption,
+    image:
+      row?.postPublicId && row.contentType
+        ? { url: studioImageUrl(row.postPublicId), contentType: row.contentType }
+        : null,
+  };
+}
+
+// Schedules the approved version. `publish` hands the content to Zernio while the
+// draft row is locked, so a failed hand-off leaves the draft approved and nothing
+// recorded, and the person can simply try again.
 export async function scheduleStudioDraft(input: {
   projectId: number;
   draftId: string;
   version: number;
   scheduledFor: Date;
   timezone: string;
+  targets: PublishTarget[];
   userId: string;
+  publish: (content: {
+    caption: string;
+    image: { url: string; contentType: string } | null;
+  }) => Promise<string>;
 }): Promise<void> {
   await db.transaction(async (tx) => {
     const draft = await lockDraft(tx, input.projectId, input.draftId);
@@ -268,10 +306,13 @@ export async function scheduleStudioDraft(input: {
       .select({ id: studioReview.id })
       .from(studioReview)
       .where(eq(studioReview.versionId, await currentVersionId(tx, draft.id, input.version)));
+    const zernioPostId = await input.publish(await versionContent(tx, draft.id, input.version));
     await tx.insert(studioSchedule).values({
       reviewId: review!.id,
       scheduledFor: input.scheduledFor,
       timezone: input.timezone,
+      targets: input.targets,
+      zernioPostId,
       createdBy: input.userId,
     });
     await setStatus(tx, draft.id, 'scheduled');
@@ -296,6 +337,8 @@ async function draftSummaries(projectId: number, draftId?: string): Promise<Stud
       postPublicId: studioPost.publicId,
       postImageFileId: studioPost.imageFileId,
       createdByName: user.name,
+      agentId: aiAgent.id,
+      scheduledFor: studioSchedule.scheduledFor,
       createdAt: studioDraft.createdAt,
       updatedAt: studioDraft.updatedAt,
     })
@@ -309,6 +352,12 @@ async function draftSummaries(projectId: number, draftId?: string): Promise<Stud
     )
     .leftJoin(studioPost, eq(studioPost.id, studioDraftVersion.postId))
     .leftJoin(user, eq(user.id, studioDraft.createdBy))
+    .leftJoin(
+      aiAgent,
+      and(eq(aiAgent.userId, studioDraft.createdBy), eq(aiAgent.projectId, studioDraft.projectId)),
+    )
+    .leftJoin(studioReview, eq(studioReview.versionId, studioDraftVersion.id))
+    .leftJoin(studioSchedule, eq(studioSchedule.reviewId, studioReview.id))
     .where(and(...where))
     .orderBy(desc(studioDraft.updatedAt))
     .limit(100);
@@ -321,6 +370,8 @@ async function draftSummaries(projectId: number, draftId?: string): Promise<Stud
     templateSlot: row.templateSlot,
     imageUrl: imageUrl(row.postPublicId, row.postImageFileId),
     createdByName: row.createdByName,
+    createdByAgent: row.agentId != null,
+    scheduledFor: row.scheduledFor ? iso(row.scheduledFor) : null,
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   }));
@@ -377,6 +428,8 @@ export async function getStudioDraft(
       version: studioDraftVersion.version,
       scheduledFor: studioSchedule.scheduledFor,
       timezone: studioSchedule.timezone,
+      targets: studioSchedule.targets,
+      zernioPostId: studioSchedule.zernioPostId,
       createdByName: user.name,
       createdAt: studioSchedule.createdAt,
     })
@@ -415,6 +468,8 @@ export async function getStudioDraft(
           version: schedule.version,
           scheduledFor: iso(schedule.scheduledFor),
           timezone: schedule.timezone,
+          targets: Array.isArray(schedule.targets) ? (schedule.targets as PublishTarget[]) : [],
+          zernioPostId: schedule.zernioPostId,
           createdByName: schedule.createdByName,
           createdAt: iso(schedule.createdAt),
         }

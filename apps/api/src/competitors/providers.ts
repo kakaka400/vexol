@@ -98,10 +98,13 @@ const PROFILE_URL: Record<Exclude<CompetitorPlatform, 'instagram'>, (handle: str
   facebook: (handle) => `https://www.facebook.com/${handle}`,
 };
 
-// Reads a follower count out of the text a scrape returns. Both platforms render
-// it as a short form next to the word, e.g. "12.3K Followers" or "1,2 mln volgers".
-function parseFollowers(text: string): number | null {
-  const match = text.match(/([\d.,]+)\s*([KMkm])?\s*(?:followers|volgers|abonnees)/i);
+// Reads a count out of the text a scrape returns. Both platforms render it as a
+// short form next to the word, e.g. "12.3K Followers", and the markdown of a
+// TikTok profile puts it in bold: "**1425**Followers".
+function parseCount(text: string, words: string): number | null {
+  const match = text.match(
+    new RegExp(`([\\d.,]+)\\s*([KMkm])?\\s*(?:\\*\\*)?\\s*(?:${words})`, 'i'),
+  );
   if (!match) return null;
   const raw = match[1].replace(/,/g, '');
   const value = Number(raw);
@@ -143,7 +146,9 @@ async function readByScrape(
     url,
     onlyMainContent: false,
   })) as Record<string, unknown>;
-  const text = [result.markdown, result.content]
+  // The page description comes first: it states the profile's own counts, while the
+  // page body also lists suggested accounts with their follower counts.
+  const text = [result.description, result.markdown, result.content]
     .map((part) => (typeof part === 'string' ? part : ''))
     .join('\n')
     .slice(0, 20_000);
@@ -151,7 +156,11 @@ async function readByScrape(
   if (text.trim().length === 0) {
     throw new HttpError(502, 'The scrape returned nothing for this profile');
   }
-  return { followers: parseFollowers(text), displayName: str(result.title) };
+  return {
+    followers: parseCount(text, 'followers|volgers|abonnees'),
+    following: parseCount(text, 'following|volgend'),
+    displayName: str(result.title),
+  };
 }
 
 export async function readProfile(

@@ -21,10 +21,11 @@ export const jinaReader: CustomToolEntry = {
       body: JSON.stringify({ url: String(input.url) }),
     });
     const body = (await jsonOrThrow(res, 'Jina Reader')) as {
-      data?: { title?: string; url?: string; content?: string };
+      data?: { title?: string; description?: string; url?: string; content?: string };
     };
     return {
       title: body.data?.title ?? '',
+      description: body.data?.description ?? '',
       url: body.data?.url ?? String(input.url),
       content: body.data?.content ?? '',
     };

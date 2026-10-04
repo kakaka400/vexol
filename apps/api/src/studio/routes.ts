@@ -7,9 +7,12 @@ import { noContent } from '../shared/http';
 import { ErrorResponse } from '../shared/responses';
 import { getObject } from '../shared/s3';
 import { assertUploadAllowed } from '../shared/uploads';
+import { mcpTool } from '../mcp/generate';
 import {
   discardStudioFile,
+  generateStudioPost,
   isStudioImageType,
+  MAX_INSTRUCTION_LENGTH,
   storeStudioFile,
   studioExtension,
   TEMPLATE_FOLDER,
@@ -88,7 +91,12 @@ export const studioRoutes = new Elysia({ name: 'studio', detail: { tags: ['Studi
         403: ErrorResponse,
         404: ErrorResponse,
       },
-      detail: { summary: 'List the six template slots of a project' },
+      detail: {
+        summary: 'List the six template slots of a project',
+        description:
+          'List the six Studio templates. Each is a photo that create_studio_post edits; the description says what it is for. A slot without a photo cannot be used yet.',
+        ...mcpTool('list_studio_templates'),
+      },
     },
   )
 
@@ -181,7 +189,47 @@ export const studioRoutes = new Elysia({ name: 'studio', detail: { tags: ['Studi
         403: ErrorResponse,
         404: ErrorResponse,
       },
-      detail: { summary: 'List the images generated from the templates, newest first' },
+      detail: {
+        summary: 'List the images generated from the templates, newest first',
+        ...mcpTool('list_studio_posts'),
+      },
+    },
+  )
+
+  .post(
+    '/projects/:projectKey/studio/posts',
+    async ({ project, body, user, set }) => {
+      const post = await generateStudioPost({
+        projectId: project.id,
+        slot: body.slot,
+        instruction: body.instruction,
+        userId: requireUser(user).id,
+      });
+      set.status = 201;
+      return postDto(post);
+    },
+    {
+      params: projectParams,
+      permission: ['studio', 'create'],
+      body: t.Object({
+        slot: t.Integer({ minimum: 1, maximum: 6 }),
+        instruction: t.String({ minLength: 1, maxLength: MAX_INSTRUCTION_LENGTH }),
+      }),
+      response: {
+        201: PostResponse,
+        400: ErrorResponse,
+        401: ErrorResponse,
+        403: ErrorResponse,
+        404: ErrorResponse,
+        413: ErrorResponse,
+        502: ErrorResponse,
+      },
+      detail: {
+        summary: 'Generate an image from a template',
+        description:
+          'Generate a new image by editing the photo of one Studio template with an instruction: the text to put on it or what to change. The template keeps its layout and style. Returns the image with a public URL. Takes up to two minutes.',
+        ...mcpTool('create_studio_post', { openWorldHint: true }),
+      },
     },
   )
 

@@ -79,7 +79,9 @@ export default function StudioDraftBody({
         )}
       </div>
 
-      {canEdit && !edited && <StudioDraftActions draft={draft} action={action} />}
+      {canEdit && !edited && (
+        <StudioDraftActions projectKey={projectKey} draft={draft} action={action} />
+      )}
 
       <StudioDraftHistory versions={draft.versions} />
     </div>

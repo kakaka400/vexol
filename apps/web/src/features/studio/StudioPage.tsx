@@ -9,8 +9,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import StudioDraftDialog from './components/StudioDraftDialog';
 import StudioDraftList from './components/StudioDraftList';
 import StudioPostGrid from './components/StudioPostGrid';
+import StudioScheduleDialog from './components/StudioScheduleDialog';
 import StudioTemplateGrid from './components/StudioTemplateGrid';
 import StudioVeraPanel from './components/StudioVeraPanel';
+import StudioVeraPosts from './components/StudioVeraPosts';
+import type { StudioDraft } from '@/lib/api';
 import {
   useStudioDraftsQuery,
   useStudioPostsQuery,
@@ -22,6 +25,7 @@ export default function StudioPage() {
   const { can } = usePermissions();
   const projectKey = project?.project.key ?? '';
   const [openDraftId, setOpenDraftId] = useState<string | null>(null);
+  const [schedulingDraft, setSchedulingDraft] = useState<StudioDraft | null>(null);
 
   const templatesQuery = useStudioTemplatesQuery(projectKey);
   const postsQuery = useStudioPostsQuery(projectKey);
@@ -38,6 +42,7 @@ export default function StudioPage() {
     );
   }
   const canChat = can('ai_agents', 'read');
+  const veraDrafts = (draftsQuery.data ?? []).filter((draft) => draft.createdByAgent);
 
   return (
     <SectionPageView
@@ -48,6 +53,12 @@ export default function StudioPage() {
       <Tabs key={projectKey} defaultValue={canChat ? 'vera' : 'drafts'} className="pb-8">
         <TabsList variant="line">
           {canChat && <TabsTrigger value="vera">Vera</TabsTrigger>}
+          <TabsTrigger value="vera-posts">
+            Vera&apos;s posts
+            {veraDrafts.length > 0 && (
+              <span className="text-xs text-muted-foreground">{veraDrafts.length}</span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="drafts">Drafts</TabsTrigger>
           <TabsTrigger value="templates">Templates</TabsTrigger>
         </TabsList>
@@ -56,6 +67,14 @@ export default function StudioPage() {
             <StudioVeraPanel projectKey={projectKey} canCreateDraft={can('studio', 'create')} />
           </TabsContent>
         )}
+        <TabsContent value="vera-posts" className="pt-4">
+          <StudioVeraPosts
+            drafts={veraDrafts}
+            canSchedule={can('studio', 'edit')}
+            onOpen={setOpenDraftId}
+            onSchedule={setSchedulingDraft}
+          />
+        </TabsContent>
         <TabsContent value="drafts" className="pt-4">
           <StudioDraftList drafts={draftsQuery.data ?? []} onOpen={setOpenDraftId} />
         </TabsContent>
@@ -83,6 +102,11 @@ export default function StudioPage() {
         draftId={openDraftId}
         canEdit={can('studio', 'edit')}
         onClose={() => setOpenDraftId(null)}
+      />
+      <StudioScheduleDialog
+        projectKey={projectKey}
+        draft={schedulingDraft}
+        onClose={() => setSchedulingDraft(null)}
       />
     </SectionPageView>
   );

@@ -58,6 +58,21 @@ Read list_issue_activity before commenting on a long-running issue, so you do no
 repeat what is already there. A comment is for the people on the project: keep it
 short and readable, no file paths, no code, no lists of edits.
 
+## Studio posts
+
+To make a social media post from a template:
+
+1. list_studio_templates to see the six templates and what each is for. Use only a
+   template that has a photo.
+2. create_studio_post with that slot and an instruction (the text to put on the
+   image, or what to change). It returns the image and its id.
+3. create_studio_draft with the caption, that image id as postId, and the slot as
+   templateSlot. The draft then shows up for the people on the project.
+
+Publishing is not yours to do: a person approves and schedules a draft. Never
+claim that a post was published or scheduled. To change a draft, read it with
+get_studio_draft and save the new content with update_studio_draft.
+
 ## Restraint
 
 - Reading an issue is not a reason to change it. When you were asked to look
