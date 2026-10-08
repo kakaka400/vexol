@@ -1532,141 +1532,106 @@ export interface CrmCustomer {
   updatedAt: string;
 }
 
-export interface LeadCampaign {
-  id: string;
+export interface LeadPlatformAgent {
+  id: number;
   name: string;
-  niche: string | null;
-  location: string | null;
-  source: string;
-  targetLeads: number | null;
-  sourcingLimit: number | null;
-  foundResults: number;
-  validLeads: number;
-  rejectedResults: number;
-  completedAnalyses: number;
-  failedAnalyses: number;
-  remainingLeads: number;
-  status: string;
-  sourcingStatus: string | null;
-  exportStatus: string;
-  outreachStatus: 'disabled';
+  username: string;
+  apiKeyStart: string | null;
+}
+
+// 'email': a company and its published email address. 'social': an account and its comment.
+export type LeadFormat = 'email' | 'social';
+
+export interface LeadPlatform {
+  id: string;
+  slug: string;
+  name: string;
+  active: boolean;
+  leadFormat: LeadFormat;
+  instructions: string;
+  agent: LeadPlatformAgent | null;
+  leadCount: number;
+  runCount: number;
+  openRunCount: number;
+  lastRunAt: string | null;
+  createdAt: string;
+}
+
+export interface LeadPlatformWithKey {
+  platform: LeadPlatform;
+  apiKey: string;
+}
+
+export interface LeadPlatformInput {
+  name: string;
+  slug: string;
+  leadFormat: LeadFormat;
+  instructions?: string;
+}
+
+export interface LeadPlatformPatch {
+  name?: string;
+  active?: boolean;
+  leadFormat?: LeadFormat;
+  instructions?: string;
+}
+
+export type ScrapeRunStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+export interface ScrapeRunDetails {
+  region: string;
+  niche: string;
+  scale: string;
+  keywords: string;
+  signal: string;
+  maxLeads: number | null;
+  notes: string;
+}
+
+export interface ScrapeRun extends ScrapeRunDetails {
+  id: string;
+  platformId: string;
+  platformSlug: string;
+  platformName: string;
+  leadFormat: LeadFormat;
+  status: ScrapeRunStatus;
+  leadCount: number;
+  error: string | null;
+  requestedBy: string | null;
+  createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
-  updatedAt: string;
 }
 
-export interface ApprovalLead {
+export interface ScrapeRunInput extends Partial<ScrapeRunDetails> {
+  platformId: string;
+  region: string;
+  niche: string;
+  scale: string;
+}
+
+export interface ScrapedLead {
   id: string;
-  companyId: string;
-  companyName: string;
-  campaignId: string;
-  campaignName: string;
-  category: string | null;
-  city: string | null;
-  postalCode: string | null;
-  phone: string | null;
-  website: string | null;
-  websiteStatus: string;
-  reviewStatus: string;
-  qualificationScore: number;
-  digitalOpportunityScore: number;
-  businessFit: string;
-  recommendation: string;
-  recommendedService: string | null;
-  evaluatedAt: string;
-  updatedAt: string;
-  outreachStatus: 'disabled';
+  platformId: string;
+  platformSlug: string;
+  platformName: string;
+  scrapeRunId: string | null;
+  email: string | null;
+  name: string;
+  sector: string | null;
+  handle: string | null;
+  profileUrl: string | null;
+  followers: number | null;
+  comment: string | null;
+  commentedAt: string | null;
+  videoUrl: string | null;
+  createdAt: string;
 }
 
-export interface LeadAudit {
-  status: string;
-  finalUrl: string | null;
-  httpStatus: number | null;
-  responseMs: number | null;
-  httpsEnabled: boolean | null;
-  title: string | null;
-  metaDescription: string | null;
-  hasViewportMeta: boolean | null;
-  h1Count: number | null;
-  formCount: number | null;
-  telLinkCount: number | null;
-  bookingLinkCount: number | null;
-  imagesMissingAlt: number | null;
-  visualInspected: boolean;
-  desktopFindings: string[];
-  mobileFindings: string[];
-  technicalFindings: string[];
-  auditedAt: string | null;
-}
-
-export interface LeadDetail extends Omit<
-  ApprovalLead,
-  | 'websiteStatus'
-  | 'qualificationScore'
-  | 'digitalOpportunityScore'
-  | 'businessFit'
-  | 'recommendation'
-  | 'evaluatedAt'
-  | 'updatedAt'
-> {
-  address: string | null;
-  countryCode: string | null;
-  publicBusinessEmail: string | null;
-  googleMapsUrl: string | null;
-  googlePlaceId: string | null;
-  lifecycleStatus: string;
-  contactStatus: string;
-  timesSeen: number;
-  websiteStatus: string | null;
-  websiteQualityScore: number | null;
-  digitalOpportunityScore: number | null;
-  qualificationScore: number | null;
-  businessFit: string | null;
-  recommendation: string | null;
-  findings: string[];
-  opportunities: string[];
-  evaluationStatus: string | null;
-  modelName: string | null;
-  evaluatedAt: string | null;
-  audit: LeadAudit | null;
-  evidence: { type: string; url: string }[];
-  source: {
-    type: string | null;
-    url: string | null;
-    actorRunId: string | null;
-    datasetId: string | null;
-    collectedAt: string | null;
-  };
-  campaignHistory: {
-    leadId: string;
-    campaignId: string;
-    campaignName: string;
-    reviewStatus: string;
-    firstAddedAt: string;
-    lastSeenAt: string;
-  }[];
-  firstAddedAt: string;
-  lastSeenAt: string;
-}
-
-export interface LeadAgentRun {
-  id: string;
-  type: 'google_maps_sourcing';
-  campaignId: string | null;
-  campaignName: string;
-  provider: string;
-  status: string;
-  phase: string;
-  startedAt: string;
-  updatedAt: string;
-  completedAt: string | null;
-  requested: number;
-  processed: number;
-  succeeded: number;
-  failed: number;
-  errorCode: string | null;
-  retryStatus: string;
-  reconciliationStatus: string;
+export interface CsvImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
 }
 
 export interface SocialMetrics {
@@ -3314,6 +3279,8 @@ export interface PhoneCalls {
   };
 }
 
+const leadsBase = (projectKey: string) => `/projects/${encodeURIComponent(projectKey)}/leads`;
+
 export const api = {
   listProjects: (opts?: { permissions?: boolean }) =>
     request<Project[]>(`/projects${opts?.permissions ? '?permissions=true' : ''}`),
@@ -3641,23 +3608,61 @@ export const api = {
 
   listCrmCustomers: (projectKey: string) =>
     request<CrmCustomer[]>(`/projects/${encodeURIComponent(projectKey)}/crm/customers`),
-  listLeadCampaigns: (projectKey: string) =>
-    request<LeadCampaign[]>(`/projects/${encodeURIComponent(projectKey)}/leads/campaigns`),
-  listApprovalLeads: (
-    projectKey: string,
-    filters: { campaignId?: string; reviewStatus?: string; sort?: string } = {},
-  ) => {
-    const query = new URLSearchParams(filters).toString();
-    return request<ApprovalLead[]>(
-      `/projects/${encodeURIComponent(projectKey)}/leads/approval-inbox${query ? `?${query}` : ''}`,
-    );
-  },
-  getLead: (projectKey: string, leadId: string) =>
-    request<LeadDetail>(
-      `/projects/${encodeURIComponent(projectKey)}/leads/${encodeURIComponent(leadId)}`,
+  listLeadPlatforms: (projectKey: string) =>
+    request<LeadPlatform[]>(`${leadsBase(projectKey)}/platforms`),
+  createLeadPlatform: (projectKey: string, input: LeadPlatformInput) =>
+    request<LeadPlatformWithKey>(`${leadsBase(projectKey)}/platforms`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateLeadPlatform: (projectKey: string, platformId: string, patch: LeadPlatformPatch) =>
+    request<LeadPlatform>(`${leadsBase(projectKey)}/platforms/${platformId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteLeadPlatform: (projectKey: string, platformId: string) =>
+    request<void>(`${leadsBase(projectKey)}/platforms/${platformId}`, { method: 'DELETE' }),
+  connectLeadPlatformAgent: (projectKey: string, platformId: string) =>
+    request<LeadPlatformWithKey>(`${leadsBase(projectKey)}/platforms/${platformId}/agent`, {
+      method: 'POST',
+    }),
+  importLeadPlatforms: (projectKey: string, csv: string) =>
+    request<CsvImportResult>(`${leadsBase(projectKey)}/platforms/import`, {
+      method: 'POST',
+      body: JSON.stringify({ csv }),
+    }),
+  listScrapeRuns: (projectKey: string, platformId?: string) =>
+    request<ScrapeRun[]>(
+      `${leadsBase(projectKey)}/runs${platformId ? `?platformId=${platformId}` : ''}`,
     ),
-  listLeadAgentRuns: (projectKey: string) =>
-    request<LeadAgentRun[]>(`/projects/${encodeURIComponent(projectKey)}/leads/agent-runs`),
+  createScrapeRun: (projectKey: string, input: ScrapeRunInput) =>
+    request<ScrapeRun>(`${leadsBase(projectKey)}/runs`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  deleteScrapeRun: (projectKey: string, runId: string, deleteLeads: boolean) =>
+    request<void>(`${leadsBase(projectKey)}/runs/${runId}?deleteLeads=${deleteLeads}`, {
+      method: 'DELETE',
+    }),
+  importScrapeRuns: (projectKey: string, csv: string) =>
+    request<CsvImportResult>(`${leadsBase(projectKey)}/runs/import`, {
+      method: 'POST',
+      body: JSON.stringify({ csv }),
+    }),
+  listScrapedLeads: (projectKey: string, platformId?: string) =>
+    request<ScrapedLead[]>(
+      `${leadsBase(projectKey)}${platformId ? `?platformId=${platformId}` : ''}`,
+    ),
+  deleteScrapedLeads: (projectKey: string, ids: string[]) =>
+    request<{ deleted: number }>(`${leadsBase(projectKey)}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+  importScrapedLeads: (projectKey: string, platformId: string, csv: string) =>
+    request<CsvImportResult>(`${leadsBase(projectKey)}/import`, {
+      method: 'POST',
+      body: JSON.stringify({ platformId, csv }),
+    }),
   getSocialDashboard: (projectKey: string) =>
     request<SocialDashboard>(`/projects/${encodeURIComponent(projectKey)}/social/dashboard`),
   getBraindumpConfig: (projectKey: string) =>

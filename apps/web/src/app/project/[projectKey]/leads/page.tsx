@@ -1,5 +1,5 @@
-import LeadsCampaignsPage from '@/features/leads/LeadsCampaignsPage';
+import LeadsPage from '@/features/leads/LeadsPage';
 
 export default function Page() {
-  return <LeadsCampaignsPage />;
+  return <LeadsPage />;
 }

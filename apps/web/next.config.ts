@@ -11,7 +11,12 @@ const nextConfig: NextConfig = {
   // css-tree loads this JSON at runtime, but Next's standalone tracer does not
   // detect the CommonJS require from its ESM package.
   outputFileTracingIncludes: {
-    '/*': ['../../node_modules/.bun/css-tree@*/node_modules/css-tree/data/patch.json'],
+    '/*': [
+      '../../node_modules/.bun/css-tree@*/node_modules/css-tree/data/patch.json',
+      // jsdom resolves undici through its package entrypoint at runtime. Next's
+      // tracer follows used lib files but can omit index.js, yielding a 500 on SSR.
+      '../../node_modules/.bun/undici@*/node_modules/undici/**/*',
+    ],
   },
   // isomorphic-dompurify loads jsdom on the server, and jsdom reads its own data
   // files (default-stylesheet.css) by a path relative to its module. Bundling it

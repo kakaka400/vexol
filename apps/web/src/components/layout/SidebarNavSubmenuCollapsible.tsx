@@ -36,7 +36,7 @@ export default function SidebarNavSubmenuCollapsible({
             {items.map((item) => (
               <SidebarMenuSubItem key={item.key}>
                 <SidebarMenuSubButton asChild isActive={item.active}>
-                  <Link href={item.href}>
+                  <Link href={item.href} prefetch={false}>
                     <item.icon />
                     <span>{item.label}</span>
                   </Link>

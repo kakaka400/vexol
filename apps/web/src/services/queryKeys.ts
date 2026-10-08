@@ -121,11 +121,12 @@ export const qk = {
   crmCustomers: (projectKey: string) => ['crmCustomers', projectKey] as const,
   crmCustomer: (customerId: string) => ['crmCustomer', customerId] as const,
   financeTransactions: (projectKey: string) => ['financeTransactions', projectKey] as const,
-  leadCampaigns: (projectKey: string) => ['leadCampaigns', projectKey] as const,
-  approvalLeads: (projectKey: string, filters: unknown) =>
-    ['approvalLeads', projectKey, filters] as const,
-  lead: (projectKey: string, leadId: string) => ['lead', projectKey, leadId] as const,
-  leadAgentRuns: (projectKey: string) => ['leadAgentRuns', projectKey] as const,
+  leads: (projectKey: string) => ['leads', projectKey] as const,
+  leadPlatforms: (projectKey: string) => ['leads', projectKey, 'platforms'] as const,
+  scrapeRuns: (projectKey: string, platformId?: string) =>
+    ['leads', projectKey, 'runs', platformId ?? 'all'] as const,
+  scrapedLeads: (projectKey: string, platformId?: string) =>
+    ['leads', projectKey, 'items', platformId ?? 'all'] as const,
   socialDashboard: (projectKey: string) => ['socialDashboard', projectKey] as const,
   braindumpConfig: (projectKey: string) => ['braindumpConfig', projectKey] as const,
   braindumpStats: (projectKey: string) => ['braindumpStats', projectKey] as const,

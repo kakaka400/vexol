@@ -26,6 +26,7 @@ export default function SidebarCommandCenterItem({
     <SidebarMenuItem className="mb-1">
       <Link
         href={disabled || !projectKey ? '#' : commandCenterPath(projectKey)}
+        prefetch={false}
         aria-disabled={disabled}
         className={cn(
           'flex h-9 items-center gap-2 rounded-md border px-2 text-sm font-medium transition-colors',

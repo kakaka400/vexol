@@ -98,14 +98,12 @@ describe('Bob MCP', () => {
   const original = {
     token: process.env.VEXOL_BOB_MCP_TOKEN,
     projectKey: process.env.VEXOL_BOB_MCP_PROJECT_KEY,
-    leadsProjectKey: process.env.VEXOL_LEADS_PROJECT_KEY,
     openRouterBase: process.env.OPENROUTER_BASE_URL,
   };
 
   beforeEach(async () => {
     process.env.VEXOL_BOB_MCP_TOKEN = TOKEN;
     process.env.VEXOL_BOB_MCP_PROJECT_KEY = 'VEX';
-    process.env.VEXOL_LEADS_PROJECT_KEY = 'VEX';
     process.env.OPENROUTER_BASE_URL = `http://localhost:${fakeOpenRouter.port}`;
     openRouterRequests.length = 0;
     resetBobMcpRateLimiter();
@@ -117,7 +115,6 @@ describe('Bob MCP', () => {
   afterEach(() => {
     process.env.VEXOL_BOB_MCP_TOKEN = original.token;
     process.env.VEXOL_BOB_MCP_PROJECT_KEY = original.projectKey;
-    process.env.VEXOL_LEADS_PROJECT_KEY = original.leadsProjectKey;
     process.env.OPENROUTER_BASE_URL = original.openRouterBase;
   });
 

@@ -18,7 +18,6 @@ Set these server-side variables on the API service:
 VEXOL_BOB_MCP_TOKEN=***
 VEXOL_BOB_MCP_PROJECT_KEY=VEX
 VEXOL_LEADS_DATABASE_URL=***
-VEXOL_LEADS_PROJECT_KEY=VEX
 ```
 
 Create an external project agent with username `bob-agent`. Assign it a project role with only
@@ -98,8 +97,7 @@ lead campaign, review, and recent agent-run counts. Do not change anything.`
   needs.
 - `429 Too many requests`: wait for the service bucket to refill.
 - `504 Request timed out`: check database health and proxy timeouts.
-- Leads failures: verify the dedicated leads connection uses a read-only database role and that
-  `VEXOL_LEADS_PROJECT_KEY` matches the configured project.
+- Leads failures: verify that the leads connection can read and write the `scraper` schema (see [leads-scraper.md](leads-scraper.md)).
 
 ## Proxy routing
 
