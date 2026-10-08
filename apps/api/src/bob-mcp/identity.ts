@@ -56,12 +56,6 @@ export function requireBob(
   resource: PermissionResource,
   action: PermissionAction,
 ): void {
-  if (
-    resource === 'leads' &&
-    process.env.VEXOL_LEADS_PROJECT_KEY?.toLowerCase() !== context.project.key.toLowerCase()
-  ) {
-    throw new BobMcpError('forbidden', 'Resource is not available');
-  }
   if (!hasPermission(context.permissions, resource, action)) {
     throw new BobMcpError('forbidden', 'Resource is not available');
   }

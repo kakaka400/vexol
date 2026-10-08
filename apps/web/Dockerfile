@@ -37,8 +37,11 @@ ENV NEXT_PUBLIC_TERMS_URL=$NEXT_PUBLIC_TERMS_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN cd apps/web && bun run build
 
-# 3) Minimal final image (standalone output).
-FROM base AS release
+# 3) Minimal final image (standalone output). Next's generated standalone server
+# and externalized packages use Node's module resolution at runtime. Building with
+# Bun is fine, but running this server with Bun breaks css-tree data-file imports.
+FROM node:22-alpine AS release
+WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3001
@@ -49,4 +52,4 @@ COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build /app/apps/web/public ./apps/web/public
 
 EXPOSE 3001
-CMD ["bun", "apps/web/server.js"]
+CMD ["node", "apps/web/server.js"]

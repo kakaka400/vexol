@@ -33,7 +33,7 @@ export default function SidebarNavSubmenuMenu({
           <DropdownMenuLabel className="text-xs text-muted-foreground">{label}</DropdownMenuLabel>
           {items.map((item) => (
             <DropdownMenuItem key={item.key} asChild className="gap-2">
-              <Link href={item.href}>
+              <Link href={item.href} prefetch={false}>
                 <item.icon />
                 <span>{item.label}</span>
               </Link>

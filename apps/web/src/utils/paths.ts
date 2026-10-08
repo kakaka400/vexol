@@ -37,10 +37,6 @@ export const studioPath = (key: string) => `${projectPath(key)}/studio`;
 export const phonePath = (key: string) => `${projectPath(key)}/phone`;
 export const braindumpPath = (key: string) => `${projectPath(key)}/braindump`;
 export const mindPath = (key: string) => `${projectPath(key)}/mind`;
-export const leadsApprovalInboxPath = (key: string) => `${leadsPath(key)}/approval-inbox`;
-export const leadsAgentRunsPath = (key: string) => `${leadsPath(key)}/agent-runs`;
-export const leadsLeadPath = (key: string, leadId: string) =>
-  `${leadsPath(key)}/${encodeURIComponent(leadId)}`;
 export const isLeadsPath = (pathname: string) => /^\/project\/[^/]+\/leads(?:\/|$)/.test(pathname);
 export const crmCustomerPath = (key: string, customerId: string) => `${crmPath(key)}/${customerId}`;
 

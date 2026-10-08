@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { FinanceTransaction } from '@/lib/api';
+import { downloadCsv } from '@/utils/csv';
 import { accountingCsv, accountingSummary, accountingYears } from '../utils/accounting';
 import type {
   AccountingStatusFilter,
@@ -41,17 +42,8 @@ export function useAccountingPage(projectKey: string) {
     );
   }, [search, status, type, yearTransactions]);
 
-  const exportCsv = () => {
-    const blob = new Blob(['\uFEFF', accountingCsv(yearTransactions)], {
-      type: 'text/csv;charset=utf-8',
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${projectKey}-accounting-${year}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const exportCsv = () =>
+    downloadCsv(`${projectKey}-accounting-${year}.csv`, accountingCsv(yearTransactions));
 
   return {
     transactionsQuery,

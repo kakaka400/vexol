@@ -21,7 +21,7 @@ export default function SidebarNavItem({
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={active} disabled={disabled} tooltip={label}>
-        <Link href={disabled ? '#' : href}>
+        <Link href={disabled ? '#' : href} prefetch={false}>
           <Icon />
           <span>{label}</span>
         </Link>

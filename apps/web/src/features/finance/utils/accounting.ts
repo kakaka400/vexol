@@ -1,4 +1,5 @@
 import type { FinanceTransaction, FinanceVatRate } from '@/lib/api';
+import { toCsv } from '@/utils/csv';
 
 export interface AccountingSummary {
   revenue: number;
@@ -51,15 +52,22 @@ export function accountingYears(transactions: FinanceTransaction[]): string[] {
   return [...years].sort((a, b) => b.localeCompare(a));
 }
 
-function csvCell(value: string | number): string {
-  let text = String(value);
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
-  return `"${text.replaceAll('"', '""')}"`;
-}
-
 export function accountingCsv(transactions: FinanceTransaction[]): string {
-  const rows = transactions.map((transaction) =>
+  return toCsv(
     [
+      'Date',
+      'Type',
+      'Reference',
+      'Counterparty',
+      'Account',
+      'Gross amount',
+      'VAT rate',
+      'VAT amount',
+      'Payment status',
+      'Due date',
+      'Description',
+    ],
+    transactions.map((transaction) => [
       transaction.transactionDate,
       transaction.type,
       transaction.reference,
@@ -71,12 +79,6 @@ export function accountingCsv(transactions: FinanceTransaction[]): string {
       transaction.paymentStatus,
       transaction.dueDate ?? '',
       transaction.description,
-    ]
-      .map(csvCell)
-      .join(','),
+    ]),
   );
-  return [
-    'Date,Type,Reference,Counterparty,Account,Gross amount,VAT rate,VAT amount,Payment status,Due date,Description',
-    ...rows,
-  ].join('\n');
 }
