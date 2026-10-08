@@ -2064,7 +2064,7 @@ export const projectMailSummary = pgTable(
 );
 
 // Twitter (Growth → Social → Twitter): public X research, its Obsidian notes, and
-// the drafts that are published through Zernio. Obsidian holds the durable notes;
+// the drafts that are published through Buffer. Obsidian holds the durable notes;
 // these tables are the index the page queries and the job state of the writes.
 
 // One research request. Every way of collecting posts creates a run: a queued run
@@ -2268,9 +2268,9 @@ export const twitterDraftSource = pgTable(
   (t) => [primaryKey({ columns: [t.draftId, t.itemId] })],
 );
 
-// One confirmed hand-off of a draft version to Zernio. The idempotency key is
-// also sent to Zernio, so a retry after a timeout cannot publish twice.
-// `unknown` means the request went out and no answer came back.
+// One confirmed hand-off of a draft version to Buffer. `unknown` means the
+// request went out and no answer came back; a retry first looks the post up in
+// Buffer, so it cannot publish twice.
 export const twitterPublishJob = pgTable(
   'twitter_publish_job',
   {
@@ -2290,7 +2290,7 @@ export const twitterPublishJob = pgTable(
     scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
     timezone: text('timezone').notNull(),
     status: text('status').notNull().default('pending'),
-    zernioPostId: text('zernio_post_id'),
+    bufferPostId: text('buffer_post_id'),
     platformPostUrl: text('platform_post_url'),
     response: jsonb('response').$type<Record<string, unknown>>().notNull().default({}),
     lastError: text('last_error'),
@@ -2372,13 +2372,13 @@ export const twitterActivity = pgTable(
   ],
 );
 
-// The project's Twitter defaults. No secrets: the X API token and the Zernio key
+// The project's Twitter defaults. No secrets: the X API token and the Buffer key
 // are integration credentials.
 export const twitterSettings = pgTable('twitter_settings', {
   projectId: integer('project_id')
     .primaryKey()
     .references(() => project.id, { onDelete: 'cascade' }),
-  zernioAccountId: text('zernio_account_id'),
+  bufferChannelId: text('buffer_channel_id'),
   defaultLanguage: text('default_language').notNull().default('en'),
   defaultTimezone: text('default_timezone').notNull().default('Europe/Amsterdam'),
   maxResults: integer('max_results').notNull().default(25),

@@ -8,7 +8,6 @@ import { authContext } from '../shared/auth-context';
 import { guards } from '../shared/guards';
 import { HttpError } from '../shared/lib';
 import { ErrorResponse } from '../shared/responses';
-import { resolveZernioKey } from '../social/zernio-key';
 import { xApiToken, type ResearchInput } from './adapters';
 import {
   checkPosts,
@@ -30,10 +29,12 @@ import {
 } from './drafts';
 import { item as normalizedItem } from './normalize';
 import {
-  fetchZernioPost,
+  BUFFER_X_CAPABILITIES,
+  fetchBufferPost,
+  findSentBufferPost,
   listTwitterChannels,
-  sendToZernio,
-  ZERNIO_X_CAPABILITIES,
+  resolveBufferKey,
+  sendToBuffer,
 } from './publish';
 import { executeNow, kickTwitterSweep } from './research';
 import {
@@ -184,7 +185,7 @@ const PublishJob = t.Object({
   accountHandle: t.Nullable(t.String()),
   scheduledFor: t.Nullable(t.String()),
   timezone: t.String(),
-  zernioPostId: t.Nullable(t.String()),
+  bufferPostId: t.Nullable(t.String()),
   platformPostUrl: t.Nullable(t.String()),
   lastError: t.Nullable(t.String()),
   retryCount: t.Number(),
@@ -304,7 +305,7 @@ const Activity = t.Object({
 });
 
 const Settings = t.Object({
-  zernioAccountId: t.Nullable(t.String()),
+  bufferChannelId: t.Nullable(t.String()),
   defaultLanguage: t.String(),
   defaultTimezone: t.String(),
   maxResults: t.Number(),
@@ -322,7 +323,7 @@ const ConnectionStatus = t.Object({
     folder: t.String(),
     notes: t.Object({ pending: t.Number(), written: t.Number(), failed: t.Number() }),
   }),
-  zernio: t.Object({ configured: t.Boolean() }),
+  buffer: t.Object({ configured: t.Boolean() }),
   xApi: t.Object({ configured: t.Boolean() }),
   openRouter: t.Object({ configured: t.Boolean() }),
   capabilities: t.Object({
@@ -491,8 +492,8 @@ function preview(draft: DraftDto) {
     warnings.push('A source is marked as disputed.');
   }
   const issues = [...checked.issues];
-  if (draft.media.length > ZERNIO_X_CAPABILITIES.maxImages) {
-    issues.push(`X takes at most ${ZERNIO_X_CAPABILITIES.maxImages} images`);
+  if (draft.media.length > BUFFER_X_CAPABILITIES.maxImages) {
+    issues.push(`X takes at most ${BUFFER_X_CAPABILITIES.maxImages} images`);
   }
   for (const media of draft.media) {
     if (!media.imageUrl) issues.push('An attached Studio image no longer exists');
@@ -535,21 +536,21 @@ async function validate(
     else if (scheduledFor.getTime() > Date.now() + 365 * 24 * 60 * 60_000)
       issues.push('The scheduled time is more than a year ahead');
   }
-  const accountId = input.accountId ?? (await getSettings(project.id)).zernioAccountId;
+  const accountId = input.accountId ?? (await getSettings(project.id)).bufferChannelId;
   let account = null;
   let apiKey: string | null = null;
   try {
-    apiKey = await resolveZernioKey(project);
+    apiKey = await resolveBufferKey(project.id);
     if (!accountId) issues.push('Choose an X account');
     else {
       account =
         (await listTwitterChannels(apiKey)).find((channel) => channel.id === accountId) ?? null;
-      if (!account) issues.push('The chosen account is not an X account connected in Zernio');
+      if (!account) issues.push('The chosen account is not an X channel connected in Buffer');
       else if (!account.connected)
-        issues.push(`@${account.username} needs to be reconnected in Zernio`);
+        issues.push(`@${account.username} needs to be reconnected in Buffer`);
     }
   } catch (error) {
-    issues.push(error instanceof HttpError ? error.message : 'Zernio could not be reached');
+    issues.push(error instanceof HttpError ? error.message : 'Buffer could not be reached');
   }
   return {
     ...result,
@@ -606,14 +607,24 @@ async function publish(
   });
   if (!begun.alreadyDone) {
     const payload = await versionPayload(project.id, draftId, body.version);
-    const outcome = await sendToZernio(checked.apiKey!, {
-      ...payload,
-      accountId: account.id,
-      mode,
-      scheduledFor: checked.scheduledFor ? new Date(checked.scheduledFor) : null,
-      timezone: body.timezone,
-      idempotencyKey: begun.zernioKey,
-    });
+    const earlier = begun.unknownSince
+      ? await findSentBufferPost(checked.apiKey!, {
+          channelId: account.id,
+          text: payload.posts[0]!,
+          since: begun.unknownSince,
+        }).catch(() => undefined)
+      : null;
+    if (earlier === undefined) {
+      throw new HttpError(503, 'Buffer could not be checked for the earlier attempt, try again');
+    }
+    const outcome =
+      earlier ??
+      (await sendToBuffer(checked.apiKey!, {
+        ...payload,
+        channelId: account.id,
+        mode,
+        scheduledFor: checked.scheduledFor ? new Date(checked.scheduledFor) : null,
+      }));
     await finishPublish({ projectId: project.id, jobId: begun.jobId, outcome, userId: callerId });
     kickTwitterSweep();
   }
@@ -1119,26 +1130,26 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
     },
   )
 
-  // ------------------------------------------------ publishing (Zernio)
+  // ------------------------------------------------ publishing (Buffer)
   .get(
     '/projects/:projectKey/twitter/channels',
     async ({ project }) => {
       let apiKey: string;
       try {
-        apiKey = await resolveZernioKey(project);
+        apiKey = await resolveBufferKey(project.id);
       } catch (error) {
         return {
           configured: false,
-          error: error instanceof HttpError ? error.message : 'Zernio is not configured',
+          error: error instanceof HttpError ? error.message : 'Buffer is not configured',
           channels: [],
-          capabilities: ZERNIO_X_CAPABILITIES,
+          capabilities: BUFFER_X_CAPABILITIES,
         };
       }
       return {
         configured: true,
         error: null,
         channels: await listTwitterChannels(apiKey),
-        capabilities: ZERNIO_X_CAPABILITIES,
+        capabilities: BUFFER_X_CAPABILITIES,
       };
     },
     {
@@ -1156,9 +1167,9 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
         503: ErrorResponse,
       },
       detail: {
-        summary: 'List the X accounts connected in Zernio',
+        summary: 'List the X channels connected in Buffer',
         description:
-          'The X (Twitter) accounts of the project Zernio account a draft can go to, and what publishing supports.',
+          'The X (Twitter) channels of the project Buffer account a draft can go to, and what publishing supports.',
         ...mcpTool('list_publish_channels', undefined, AGENT),
       },
     },
@@ -1184,7 +1195,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
       detail: {
         summary: 'Check a draft before it is scheduled or published',
         description:
-          'Check the current version against the X limits, the chosen Zernio account and the time. Returns the preview and its contentHash, which a person confirms when publishing. Sends nothing.',
+          'Check the current version against the X limits, the chosen Buffer channel and the time. Returns the preview and its contentHash, which a person confirms when publishing. Sends nothing.',
         ...mcpTool('validate_publish_post', { readOnlyHint: true }, AGENT),
       },
     },
@@ -1203,7 +1214,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
       permission: ['twitter_publish', 'create'],
       response: { 200: Draft, ...errors, 502: ErrorResponse, 503: ErrorResponse },
       detail: {
-        summary: 'Schedule a confirmed draft version through Zernio',
+        summary: 'Schedule a confirmed draft version through Buffer',
         description:
           'Schedule the confirmed version on X. Only a person can do this: an agent gets 403. Requires confirm: true and the contentHash of the preview the person saw.',
         ...mcpTool('schedule_twitter_post', { destructiveHint: true, openWorldHint: true }, AGENT),
@@ -1221,7 +1232,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
       permission: ['twitter_publish', 'create'],
       response: { 200: Draft, ...errors, 502: ErrorResponse, 503: ErrorResponse },
       detail: {
-        summary: 'Publish a confirmed draft version now through Zernio',
+        summary: 'Publish a confirmed draft version now through Buffer',
         description:
           'Publish the confirmed version on X now. Only a person can do this: an agent gets 403. Requires confirm: true and the contentHash of the preview the person saw.',
         ...mcpTool('publish_twitter_post', { destructiveHint: true, openWorldHint: true }, AGENT),
@@ -1234,9 +1245,9 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
     async ({ project, params, user }) => {
       const job = await getPublishJob(project.id, params.jobId);
       if (!job) throw new HttpError(404, 'Publication not found');
-      if (job.zernioPostId && job.status === 'scheduled') {
-        const apiKey = await resolveZernioKey(project);
-        const post = await fetchZernioPost(apiKey, job.zernioPostId);
+      if (job.bufferPostId && job.status === 'scheduled') {
+        const apiKey = await resolveBufferKey(project.id);
+        const post = await fetchBufferPost(apiKey, job.bufferPostId);
         if (post && post.status !== 'scheduled') {
           await finishPublish({
             projectId: project.id,
@@ -1259,7 +1270,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
         503: ErrorResponse,
       },
       detail: {
-        summary: 'Get the status of a publication, refreshed from Zernio',
+        summary: 'Get the status of a publication, refreshed from Buffer',
         ...mcpTool('get_publish_status', undefined, AGENT),
       },
     },
@@ -1313,7 +1324,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
       params: projectParams,
       body: t.Partial(
         t.Object({
-          zernioAccountId: t.Nullable(t.String({ minLength: 1, maxLength: 64 })),
+          bufferChannelId: t.Nullable(t.String({ minLength: 1, maxLength: 64 })),
           defaultLanguage: t.String({ pattern: '^[a-z]{2,3}$' }),
           defaultTimezone: t.String({ minLength: 1, maxLength: 64 }),
           maxResults: t.Integer({ minimum: 1, maximum: 100 }),
@@ -1330,12 +1341,12 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
   .get(
     '/projects/:projectKey/twitter/status',
     async ({ project }) => {
-      let zernio = false;
+      let buffer = false;
       try {
-        await resolveZernioKey(project);
-        zernio = true;
+        await resolveBufferKey(project.id);
+        buffer = true;
       } catch {
-        zernio = false;
+        buffer = false;
       }
       return {
         researchMcp: { path: MCP_SERVERS[RESEARCH].path, enabled: project.mcpEnabled },
@@ -1346,14 +1357,14 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
           folder: TWITTER_FOLDER,
           notes: await noteStatusCounts(project.id),
         },
-        zernio: { configured: zernio },
+        buffer: { configured: buffer },
         xApi: { configured: (await xApiToken(project.id)) != null },
         openRouter: { configured: (await findCredentialConfig(project.id, 'openrouter')) != null },
         capabilities: {
           research: (await xApiToken(project.id))
             ? ['search', 'profiles', 'posts', 'metrics', 'ingest']
             : ['posts (oEmbed, no metrics)', 'ingest'],
-          publishing: ZERNIO_X_CAPABILITIES,
+          publishing: BUFFER_X_CAPABILITIES,
         },
       };
     },
@@ -1374,9 +1385,9 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
         if (body.target === 'obsidian') {
           await testVaultWrite();
           message = `Wrote and removed a test file in ${TWITTER_FOLDER}`;
-        } else if (body.target === 'zernio') {
-          const channels = await listTwitterChannels(await resolveZernioKey(project));
-          message = `Zernio answered: ${channels.length} X account(s) connected`;
+        } else if (body.target === 'buffer') {
+          const channels = await listTwitterChannels(await resolveBufferKey(project.id));
+          message = `Buffer answered: ${channels.length} X channel(s) connected`;
         } else {
           const token = await xApiToken(project.id);
           if (!token) throw new HttpError(503, 'No X API token in Settings → Integrations');
@@ -1409,7 +1420,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
     {
       params: projectParams,
       body: t.Object({
-        target: t.Union([t.Literal('obsidian'), t.Literal('zernio'), t.Literal('x_api')]),
+        target: t.Union([t.Literal('obsidian'), t.Literal('buffer'), t.Literal('x_api')]),
       }),
       permission: ['twitter', 'edit'],
       response: { 200: t.Object({ ok: t.Boolean(), message: t.String() }), ...errors },

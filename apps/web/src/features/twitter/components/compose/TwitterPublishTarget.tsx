@@ -20,7 +20,7 @@ export interface PublishTarget {
   timezone: string;
 }
 
-// Where and when: the X account connected in Zernio, publish now or at a time in
+// Where and when: the X channel connected in Buffer, publish now or at a time in
 // a chosen time zone.
 export default function TwitterPublishTarget({
   value,
@@ -37,7 +37,7 @@ export default function TwitterPublishTarget({
   if (channels.isError || !channels.data?.configured) {
     return (
       <p className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
-        {channels.data?.error ?? channels.error?.message ?? 'Zernio is not configured.'}
+        {channels.data?.error ?? channels.error?.message ?? 'Buffer is not configured.'}
       </p>
     );
   }
@@ -45,9 +45,9 @@ export default function TwitterPublishTarget({
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-1.5 sm:col-span-2">
-        <Label>X account in Zernio</Label>
+        <Label>X account in Buffer</Label>
         {accounts.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No X account is connected in Zernio.</p>
+          <p className="text-sm text-muted-foreground">No X account is connected in Buffer.</p>
         ) : (
           <Select value={value.accountId} onValueChange={(accountId) => set({ accountId })}>
             <SelectTrigger className="w-full" aria-label="X account">
@@ -57,7 +57,7 @@ export default function TwitterPublishTarget({
               {accounts.map((account) => (
                 <SelectItem key={account.id} value={account.id} disabled={!account.connected}>
                   @{account.username || account.displayName}
-                  {!account.connected && ' (reconnect in Zernio)'}
+                  {!account.connected && ' (reconnect in Buffer)'}
                 </SelectItem>
               ))}
             </SelectContent>

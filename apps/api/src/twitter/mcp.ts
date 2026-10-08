@@ -36,7 +36,7 @@ Every tool takes the projectKey of the project.
 3. preview_twitter_post shows the X character counts, blocking issues and
    warnings, such as numbers that appear in no source.
 4. list_publish_channels and validate_publish_post check a draft against the X
-   account in Zernio.
+   channel in Buffer.
 
 Keep facts, opinions and marketing text apart; do not present an opinion or a
 claim from a source as an established fact. schedule_twitter_post and

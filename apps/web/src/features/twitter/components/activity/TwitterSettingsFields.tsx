@@ -38,9 +38,9 @@ export default function TwitterSettingsFields({
       <div className="space-y-1.5">
         <Label>Default X account</Label>
         <Select
-          value={values.zernioAccountId ?? NONE}
+          value={values.bufferChannelId ?? NONE}
           disabled={disabled}
-          onValueChange={(v) => set('zernioAccountId', v === NONE ? null : v)}
+          onValueChange={(v) => set('bufferChannelId', v === NONE ? null : v)}
         >
           <SelectTrigger className="w-full" aria-label="Default X account">
             <SelectValue />

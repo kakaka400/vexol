@@ -234,7 +234,7 @@ async function renderDraft(job: Job): Promise<RenderedNote | null> {
         }),
       ),
       publications: draft.publications
-        .filter((pub) => pub.zernioPostId)
+        .filter((pub) => pub.bufferPostId)
         .map((pub) => ({
           notePath: publishedNotePath(pub),
           status: `${pub.status} (${pub.mode})`,

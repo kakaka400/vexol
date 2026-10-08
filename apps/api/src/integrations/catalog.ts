@@ -11,8 +11,8 @@ import { AI_PROVIDERS } from './llm-providers';
 //              @repo/agent-tools. Their credential schema and tool list come from the
 //              package.
 //   - "service" — data sources a project feature reads with the project's own key
-//              (Zernio backs Social and publishing, X API the Twitter research, Rinkel the
-//              Phone page). Not agent tools,
+//              (Zernio backs Social and Studio publishing, Buffer the Twitter publishing,
+//              X API the Twitter research, Rinkel the Phone page). Not agent tools,
 //              so they expose none.
 // The credential form and, for tool integrations, the tool picker are built from a
 // descriptor on the frontend.
@@ -73,6 +73,21 @@ const SERVICE_INTEGRATIONS: UnifiedIntegration[] = [
         type: 'secret',
         required: true,
         help: 'Powers the Social page of this project.',
+      },
+    ],
+    tools: [],
+  },
+  {
+    key: 'buffer',
+    label: 'Buffer',
+    kind: 'service',
+    credentialSchema: [
+      {
+        key: 'apiKey',
+        label: 'API key',
+        type: 'secret',
+        required: true,
+        help: 'Publishes and schedules posts on the Twitter page. From publish.buffer.com → Settings → API.',
       },
     ],
     tools: [],

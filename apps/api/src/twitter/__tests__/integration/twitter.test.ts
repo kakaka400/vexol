@@ -8,7 +8,7 @@ import { api as anonymous, apiKeyApi, authedApi, type Api } from '../../../__tes
 import { signUpTestUser } from '../../../__tests__/helpers/auth';
 import { resetDb } from '../../../__tests__/helpers/db';
 
-// X, oEmbed and Zernio are the only things reached over the network. Each is
+// X, oEmbed and Buffer are the only things reached over the network. Each is
 // faked here: calls are recorded, and a test can make the next one fail. No test
 // reaches the real services, so no post is ever published.
 
@@ -19,10 +19,12 @@ type Fake = { status?: number; throws?: boolean; body?: unknown };
 let xCalls: { path: string; query: URLSearchParams; authorization: string | null }[] = [];
 let xNext: Record<string, Fake> = {};
 let oembedCalls = 0;
-let zernioCalls: { method: string; path: string; key: string | null; body: unknown }[] = [];
-let zernioPostQueue: Fake[] = [];
-let zernioAccounts: unknown[] = [];
-let zernioStatus = 'published';
+let bufferCalls: { query: string; variables: Record<string, unknown>; key: string | null }[] = [];
+let bufferCreateQueue: Fake[] = [];
+let bufferChannels: unknown[] = [];
+let bufferPosts: unknown[] = [];
+let bufferStatus = 'sent';
+const creates = () => bufferCalls.filter((call) => call.query.includes('createPost'));
 
 const tweets = (ids: string[], handle = 'VexolEU') => ({
   data: ids.map((id) => ({
@@ -90,50 +92,30 @@ function fake(input: string | URL | Request, init?: RequestInit): Promise<Respon
       }),
     );
   }
-  if (url.host === 'zernio.com') {
-    const method = init?.method ?? 'GET';
-    zernioCalls.push({
-      method,
-      path: url.pathname.replace('/api/v1', ''),
-      key: headers.get('idempotency-key'),
-      body: init?.body ? JSON.parse(String(init.body)) : null,
+  if (url.host === 'api.buffer.com') {
+    const { query, variables } = JSON.parse(String(init?.body)) as {
+      query: string;
+      variables: Record<string, unknown>;
+    };
+    bufferCalls.push({ query, variables, key: headers.get('authorization') });
+    const data = (value: unknown) => Promise.resolve(Response.json({ data: value }));
+    if (query.includes('createPost')) {
+      const next = bufferCreateQueue.shift();
+      if (next?.throws) return Promise.reject(new Error('timeout'));
+      if (next?.status || next?.body) {
+        return Promise.resolve(Response.json(next.body ?? {}, { status: next.status ?? 200 }));
+      }
+      return data({ createPost: { post: { id: 'bp_1', status: 'scheduled' } } });
+    }
+    if (query.includes('organizations'))
+      return data({ account: { organizations: [{ id: 'org_1' }] } });
+    if (query.includes('channels(')) return data({ channels: bufferChannels });
+    if (query.includes('channel(')) return data({ channel: { organizationId: 'org_1' } });
+    if (query.includes('posts('))
+      return data({ posts: { edges: bufferPosts.map((node) => ({ node })) } });
+    return data({
+      post: { id: 'bp_1', status: bufferStatus, externalLink: 'https://x.com/vexoleu/status/999' },
     });
-    if (url.pathname.endsWith('/accounts'))
-      return Promise.resolve(Response.json({ accounts: zernioAccounts }));
-    if (method === 'GET' && url.pathname.includes('/posts/')) {
-      return Promise.resolve(
-        Response.json({
-          post: {
-            _id: 'zp_1',
-            status: zernioStatus,
-            platforms: [
-              {
-                platform: 'twitter',
-                status: zernioStatus,
-                platformPostUrl: 'https://x.com/vexoleu/status/999',
-              },
-            ],
-          },
-        }),
-      );
-    }
-    const next = zernioPostQueue.shift();
-    if (next?.throws) return Promise.reject(new Error('timeout'));
-    if (next?.status || next?.body) {
-      return Promise.resolve(Response.json(next.body ?? {}, { status: next.status ?? 201 }));
-    }
-    return Promise.resolve(
-      Response.json(
-        {
-          post: {
-            _id: 'zp_1',
-            status: 'scheduled',
-            platforms: [{ platform: 'twitter', status: 'scheduled' }],
-          },
-        },
-        { status: 201 },
-      ),
-    );
   }
   return realFetch(input, init);
 }
@@ -150,14 +132,20 @@ async function sweep(notes = 200) {
   return response.data!;
 }
 
-async function setup(options: { xToken?: boolean } = { xToken: true }) {
+async function setup(options: { xToken?: boolean; buffer?: boolean } = {}) {
   const owner = await signUpTestUser({ name: 'Owner' });
   const asOwner = authedApi(owner.cookie);
   await asOwner.projects.post({ key: 'MKT', name: 'Marketing' });
-  if (options.xToken) {
+  if (options.xToken !== false) {
     await asOwner.projects({ projectKey: 'MKT' }).integrations.post({
       integrationKey: 'x_api',
       credential: { bearerToken: 'x-test-token' },
+    });
+  }
+  if (options.buffer !== false) {
+    await asOwner.projects({ projectKey: 'MKT' }).integrations.post({
+      integrationKey: 'buffer',
+      credential: { apiKey: 'bk-test' },
     });
   }
   return { owner, asOwner };
@@ -221,8 +209,6 @@ describe('Twitter', () => {
   const env = {
     vault: process.env.OBSIDIAN_VAULT_DIR,
     worker: process.env.WORKER_INTERNAL_TOKEN,
-    zernio: process.env.ZERNIO_API,
-    zernioProject: process.env.ZERNIO_PROJECT_KEY,
     retry: process.env.TWITTER_NOTE_RETRY_BASE_MS,
   };
 
@@ -231,18 +217,17 @@ describe('Twitter', () => {
     vault = await mkdtemp(path.join(tmpdir(), 'twitter-vault-'));
     process.env.OBSIDIAN_VAULT_DIR = vault;
     process.env.WORKER_INTERNAL_TOKEN = WORKER_TOKEN;
-    process.env.ZERNIO_API = 'zk-test';
-    process.env.ZERNIO_PROJECT_KEY = 'MKT';
     process.env.TWITTER_NOTE_RETRY_BASE_MS = '1';
     xCalls = [];
     xNext = {};
     oembedCalls = 0;
-    zernioCalls = [];
-    zernioPostQueue = [];
-    zernioStatus = 'published';
-    zernioAccounts = [
-      { _id: 'acc_x', platform: 'twitter', username: 'vexoleu', displayName: 'Vexol' },
-      { _id: 'acc_ig', platform: 'instagram', username: 'vexol' },
+    bufferCalls = [];
+    bufferCreateQueue = [];
+    bufferPosts = [];
+    bufferStatus = 'sent';
+    bufferChannels = [
+      { id: 'ch_x', service: 'twitter', name: 'vexoleu', displayName: 'Vexol' },
+      { id: 'ch_ig', service: 'instagram', name: 'vexol' },
     ];
     globalThis.fetch = fake as typeof fetch;
   }, 30_000);
@@ -252,8 +237,6 @@ describe('Twitter', () => {
     for (const [name, value] of [
       ['OBSIDIAN_VAULT_DIR', env.vault],
       ['WORKER_INTERNAL_TOKEN', env.worker],
-      ['ZERNIO_API', env.zernio],
-      ['ZERNIO_PROJECT_KEY', env.zernioProject],
       ['TWITTER_NOTE_RETRY_BASE_MS', env.retry],
     ] as const) {
       if (value === undefined) delete process.env[name];
@@ -723,19 +706,26 @@ describe('Twitter', () => {
     });
   });
 
-  describe('publishing through Zernio', () => {
+  describe('publishing through Buffer', () => {
     async function draftFor(asOwner: Api, posts = ['First 1/2', 'Second 2/2']) {
       const created = await twitter(asOwner).drafts.post({ posts, idempotencyKey: key() });
       return created.data!;
     }
     const tomorrow = () => new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+    const publishBody = (draft: { contentHash: string }) => ({
+      version: 1,
+      contentHash: draft.contentHash,
+      accountId: 'ch_x',
+      timezone: 'UTC',
+      confirm: true as const,
+    });
 
-    it('lists only X accounts, and says so when there is none', async () => {
+    it('lists only X channels, and says so when there is none', async () => {
       const { asOwner } = await setup();
       const channels = await twitter(asOwner).channels.get();
       expect(channels.data).toMatchObject({
         configured: true,
-        channels: [{ id: 'acc_x', platform: 'twitter' }],
+        channels: [{ id: 'ch_x', platform: 'twitter', username: 'vexoleu', connected: true }],
       });
       expect(channels.data!.capabilities).toMatchObject({
         thread: true,
@@ -743,49 +733,45 @@ describe('Twitter', () => {
         schedule: true,
         video: false,
       });
+      expect(bufferCalls[0]!.key).toBe('Bearer bk-test');
 
-      zernioAccounts = [{ _id: 'acc_ig', platform: 'instagram', username: 'vexol' }];
       const draft = await draftFor(asOwner);
       const validation = await twitter(asOwner).drafts({ draftId: draft.id }).validate.post({
-        accountId: 'acc_ig',
+        accountId: 'ch_ig',
         mode: 'now',
         timezone: 'Europe/Amsterdam',
       });
       expect(validation.data!.ok).toBe(false);
       expect(validation.data!.issues).toContain(
-        'The chosen account is not an X account connected in Zernio',
+        'The chosen account is not an X channel connected in Buffer',
       );
     });
 
-    it('reports a missing Zernio key as a capability, not a success', async () => {
-      const { asOwner } = await setup();
-      delete process.env.ZERNIO_API;
+    it('reports a missing Buffer key as a capability, not a success', async () => {
+      const { asOwner } = await setup({ buffer: false });
       const channels = await twitter(asOwner).channels.get();
       expect(channels.data).toMatchObject({ configured: false, channels: [] });
-      expect(channels.data!.error).toContain('Zernio API key');
+      expect(channels.data!.error).toContain('Buffer API key');
     });
 
-    it('schedules a confirmed thread once, with an idempotency key', async () => {
+    it('schedules a confirmed thread once', async () => {
       const { asOwner } = await setup();
       const draft = await draftFor(asOwner);
       const byId = twitter(asOwner).drafts({ draftId: draft.id });
       const scheduledFor = tomorrow();
       const validation = await byId.validate.post({
-        accountId: 'acc_x',
+        accountId: 'ch_x',
         mode: 'schedule',
         scheduledFor,
         timezone: 'Europe/Amsterdam',
       });
-      expect(validation.data).toMatchObject({ ok: true, account: { id: 'acc_x' } });
-      expect(zernioCalls.filter((c) => c.method === 'POST')).toHaveLength(0);
+      expect(validation.data).toMatchObject({ ok: true, account: { id: 'ch_x' } });
+      expect(creates()).toHaveLength(0);
 
       const body = {
-        version: 1,
-        contentHash: validation.data!.contentHash,
-        accountId: 'acc_x',
+        ...publishBody(validation.data!),
         timezone: 'Europe/Amsterdam',
         scheduledFor,
-        confirm: true as const,
       };
       const scheduled = await byId.schedule.post(body);
       expect(scheduled.status).toBe(200);
@@ -793,30 +779,23 @@ describe('Twitter', () => {
       expect(scheduled.data!.publications[0]).toMatchObject({
         status: 'scheduled',
         mode: 'schedule',
-        zernioPostId: 'zp_1',
+        bufferPostId: 'bp_1',
         accountHandle: 'vexoleu',
         confirmedByName: 'Owner',
       });
-      const posts = zernioCalls.filter((c) => c.method === 'POST');
-      expect(posts).toHaveLength(1);
-      expect(posts[0]!.key).toBe(`twitter-${draft.id}-v1-r0`);
-      expect(posts[0]!.body).toMatchObject({
-        content: 'First 1/2',
-        platforms: [
-          {
-            platform: 'twitter',
-            accountId: 'acc_x',
-            platformSpecificData: {
-              threadItems: [{ content: 'First 1/2' }, { content: 'Second 2/2' }],
-            },
-          },
-        ],
-        timezone: 'Europe/Amsterdam',
+      expect(creates()).toHaveLength(1);
+      expect(creates()[0]!.variables.input).toMatchObject({
+        text: 'First 1/2',
+        channelId: 'ch_x',
+        schedulingType: 'automatic',
+        mode: 'customScheduled',
+        dueAt: scheduledFor,
+        metadata: { twitter: { thread: [{ text: 'First 1/2' }, { text: 'Second 2/2' }] } },
       });
 
       const repeated = await byId.schedule.post(body);
       expect(repeated.status).toBe(200);
-      expect(zernioCalls.filter((c) => c.method === 'POST')).toHaveLength(1);
+      expect(creates()).toHaveLength(1);
 
       const locked = await byId.versions.post({ baseVersion: 1, posts: ['changed'] });
       expect(locked.status).toBe(409);
@@ -826,7 +805,7 @@ describe('Twitter', () => {
       const { asOwner } = await setup();
       const draft = await draftFor(asOwner);
       const byId = twitter(asOwner).drafts({ draftId: draft.id });
-      const base = { version: 1, accountId: 'acc_x', timezone: 'UTC' };
+      const base = { version: 1, accountId: 'ch_x', timezone: 'UTC' };
       const unconfirmed = await byId.publish.post({
         ...base,
         contentHash: draft.contentHash,
@@ -845,87 +824,66 @@ describe('Twitter', () => {
         scheduledFor: new Date(Date.now() - 60_000).toISOString(),
       });
       expect(pastTime.status).toBe(400);
-      expect(zernioCalls.filter((c) => c.method === 'POST')).toHaveLength(0);
+      expect(creates()).toHaveLength(0);
     });
 
-    it('treats a timeout as unknown and retries with the same key', async () => {
+    it('treats a timeout as unknown and finds the post in Buffer on retry', async () => {
       const { asOwner } = await setup();
       const draft = await draftFor(asOwner, ['Only post']);
       const byId = twitter(asOwner).drafts({ draftId: draft.id });
-      const body = {
-        version: 1,
-        contentHash: draft.contentHash,
-        accountId: 'acc_x',
-        timezone: 'UTC',
-        confirm: true as const,
-      };
-      zernioPostQueue = [{ throws: true }];
-      const first = await byId.publish.post(body);
+      bufferCreateQueue = [{ throws: true }];
+      const first = await byId.publish.post(publishBody(draft));
       expect(first.status).toBe(200);
       expect(first.data!.status).toBe('draft');
       expect(first.data!.publications[0]).toMatchObject({ status: 'unknown' });
       expect(first.data!.publications[0]!.lastError).toContain('unavailable');
 
-      zernioPostQueue = [
-        {
-          body: {
-            post: {
-              _id: 'zp_1',
-              status: 'published',
-              platforms: [
-                {
-                  platform: 'twitter',
-                  status: 'published',
-                  platformPostUrl: 'https://x.com/vexoleu/status/999',
-                },
-              ],
-            },
-          },
-        },
+      bufferPosts = [
+        { id: 'bp_1', text: 'Only post', status: 'sent', externalLink: 'https://x.com/a/status/1' },
       ];
-      const retried = await byId.publish.post(body);
+      const retried = await byId.publish.post(publishBody(draft));
       expect(retried.data!.status).toBe('published');
-      const keys = zernioCalls.filter((c) => c.method === 'POST').map((c) => c.key);
-      expect(keys).toEqual([`twitter-${draft.id}-v1-r0`, `twitter-${draft.id}-v1-r0`]);
+      expect(retried.data!.publications[0]).toMatchObject({ bufferPostId: 'bp_1' });
+      expect(creates()).toHaveLength(1);
     });
 
-    it("shows Zernio's refusal and retries it as a new request", async () => {
+    it('sends again after a timeout when Buffer has no such post', async () => {
       const { asOwner } = await setup();
       const draft = await draftFor(asOwner, ['Only post']);
       const byId = twitter(asOwner).drafts({ draftId: draft.id });
-      const body = {
-        version: 1,
-        contentHash: draft.contentHash,
-        accountId: 'acc_x',
-        timezone: 'UTC',
-        confirm: true as const,
-      };
-      zernioPostQueue = [{ status: 400, body: { error: 'Duplicate content' } }];
-      const refused = await byId.publish.post(body);
+      bufferCreateQueue = [{ throws: true }];
+      await byId.publish.post(publishBody(draft));
+
+      const retried = await byId.publish.post(publishBody(draft));
+      expect(retried.data!.publications[0]).toMatchObject({ status: 'scheduled' });
+      expect(creates()).toHaveLength(2);
+      expect(creates()[1]!.variables.input).toMatchObject({ mode: 'shareNow', text: 'Only post' });
+    });
+
+    it("shows Buffer's refusal and retries it as a new request", async () => {
+      const { asOwner } = await setup();
+      const draft = await draftFor(asOwner, ['Only post']);
+      const byId = twitter(asOwner).drafts({ draftId: draft.id });
+      bufferCreateQueue = [{ body: { data: { createPost: { message: 'Duplicate content' } } } }];
+      const refused = await byId.publish.post(publishBody(draft));
       expect(refused.data!.status).toBe('failed');
-      expect(refused.data!.publications[0]!.lastError).toBe('Zernio refused: Duplicate content');
+      expect(refused.data!.publications[0]!.lastError).toBe('Buffer refused: Duplicate content');
       const errors = await twitter(asOwner).activity.get({
         query: { event: 'twitter.publish.failed' },
       });
       expect(errors.data![0]!.summary).toContain('Duplicate content');
 
-      await byId.publish.post(body);
-      const keys = zernioCalls.filter((c) => c.method === 'POST').map((c) => c.key);
-      expect(keys).toEqual([`twitter-${draft.id}-v1-r0`, `twitter-${draft.id}-v1-r1`]);
+      await byId.publish.post(publishBody(draft));
+      expect(creates()).toHaveLength(2);
+      expect(bufferCalls.some((call) => call.query.includes('posts('))).toBe(false);
     });
 
-    it('refreshes the status from Zernio and writes the Published note', async () => {
+    it('refreshes the status from Buffer and writes the Published note', async () => {
       const { asOwner } = await setup();
       const draft = await draftFor(asOwner, ['Only post']);
-      const scheduledFor = tomorrow();
-      const scheduled = await twitter(asOwner).drafts({ draftId: draft.id }).schedule.post({
-        version: 1,
-        contentHash: draft.contentHash,
-        accountId: 'acc_x',
-        timezone: 'UTC',
-        scheduledFor,
-        confirm: true,
-      });
+      const scheduled = await twitter(asOwner)
+        .drafts({ draftId: draft.id })
+        .schedule.post({ ...publishBody(draft), scheduledFor: tomorrow() });
       const job = scheduled.data!.publications[0]!;
       const status = await twitter(asOwner)['publish-jobs']({ jobId: job.id }).get();
       expect(status.data).toMatchObject({
@@ -933,22 +891,16 @@ describe('Twitter', () => {
         platformPostUrl: 'https://x.com/vexoleu/status/999',
       });
       await sweep();
-      const note = await readFile(path.join(vault, 'Socials/Twitter/Published/zp_1.md'), 'utf8');
+      const note = await readFile(path.join(vault, 'Socials/Twitter/Published/bp_1.md'), 'utf8');
       expect(note).toContain('status: "published"');
       expect(note).toContain('confirmed_by: "Owner"');
-      expect(note).not.toContain('zk-test');
+      expect(note).not.toContain('bk-test');
     });
 
     it('does not let an agent or a researcher publish', async () => {
       const { asOwner } = await setup();
       const draft = await draftFor(asOwner, ['Only post']);
-      const body = {
-        version: 1,
-        contentHash: draft.contentHash,
-        accountId: 'acc_x',
-        timezone: 'UTC',
-        confirm: true as const,
-      };
+      const body = publishBody(draft);
 
       const agentKey = await agent(asOwner, {
         twitter: { read: true, create: true, edit: true },
@@ -968,7 +920,7 @@ describe('Twitter', () => {
         idempotencyKey: key(),
       });
       expect(research.status).toBe(200);
-      expect(zernioCalls.filter((c) => c.method === 'POST')).toHaveLength(0);
+      expect(creates()).toHaveLength(0);
     });
   });
 
@@ -995,10 +947,10 @@ describe('Twitter', () => {
       const status = await twitter(asOwner).status.get();
       expect(status.data).toMatchObject({
         xApi: { configured: true },
-        zernio: { configured: true },
+        buffer: { configured: true },
       });
       const text = JSON.stringify(status.data);
-      for (const secret of ['x-test-token', 'zk-test', vault]) expect(text).not.toContain(secret);
+      for (const secret of ['x-test-token', 'bk-test', vault]) expect(text).not.toContain(secret);
     });
   });
 
@@ -1074,7 +1026,7 @@ describe('Twitter', () => {
     });
   });
 
-  it('runs end to end: research, Obsidian, library, draft, preview, confirmation, Zernio, activity', async () => {
+  it('runs end to end: research, Obsidian, library, draft, preview, confirmation, Buffer, activity', async () => {
     const { asOwner } = await setup();
     await asOwner.projects({ projectKey: 'MKT' }).settings.patch({ mcpEnabled: true });
     const researchKey = await agent(asOwner, { twitter: { read: true, create: true } }, 'atlas');
@@ -1146,19 +1098,19 @@ describe('Twitter', () => {
           draftId: draft.id,
           version: 1,
           contentHash: draft.contentHash,
-          accountId: 'acc_x',
+          accountId: 'ch_x',
           timezone: 'UTC',
           confirm: true,
         },
       }),
     );
     expect(agentPublish.isError).toBe(true);
-    expect(zernioCalls.filter((c) => c.method === 'POST')).toHaveLength(0);
+    expect(creates()).toHaveLength(0);
 
-    // 7. The person validates, confirms and schedules (mocked Zernio).
+    // 7. The person validates, confirms and schedules (mocked Buffer).
     const scheduledFor = new Date(Date.now() + 3 * 60 * 60_000).toISOString();
     const validation = await twitter(asOwner).drafts({ draftId: draft.id }).validate.post({
-      accountId: 'acc_x',
+      accountId: 'ch_x',
       mode: 'schedule',
       scheduledFor,
       timezone: 'Europe/Amsterdam',
@@ -1167,7 +1119,7 @@ describe('Twitter', () => {
     const scheduled = await twitter(asOwner).drafts({ draftId: draft.id }).schedule.post({
       version: 1,
       contentHash: validation.data!.contentHash,
-      accountId: 'acc_x',
+      accountId: 'ch_x',
       timezone: 'Europe/Amsterdam',
       scheduledFor,
       confirm: true,
@@ -1191,6 +1143,6 @@ describe('Twitter', () => {
     expect(requested.actorName).toBe('Owner');
     const sourceAfter = await twitter(asOwner).items.get({ query: { ids: source.id } });
     expect(sourceAfter.data![0]!.draftIds).toEqual([draft.id]);
-    expect(existsSync(path.join(vault, 'Socials/Twitter/Published/zp_1.md'))).toBe(true);
+    expect(existsSync(path.join(vault, 'Socials/Twitter/Published/bp_1.md'))).toBe(true);
   });
 });

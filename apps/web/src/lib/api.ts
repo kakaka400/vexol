@@ -2849,7 +2849,7 @@ export interface StudioTemplatePatch {
 // A photo the image model made from a template. imageUrl is public, so it can be
 // used directly in an <img>.
 // Twitter (Growth → Social → Twitter): public X research, its Obsidian notes, and
-// drafts published through Zernio. Shapes mirror apps/api/src/twitter.
+// drafts published through Buffer. Shapes mirror apps/api/src/twitter.
 export type TwitterRunStatus =
   'queued' | 'running' | 'completed' | 'partial' | 'stopped' | 'failed';
 export type TwitterVerification = 'unverified' | 'verified' | 'disputed';
@@ -2947,7 +2947,7 @@ export interface TwitterPublishJob {
   accountHandle: string | null;
   scheduledFor: string | null;
   timezone: string;
-  zernioPostId: string | null;
+  bufferPostId: string | null;
   platformPostUrl: string | null;
   lastError: string | null;
   retryCount: number;
@@ -3060,7 +3060,7 @@ export interface TwitterActivity {
 }
 
 export interface TwitterSettings {
-  zernioAccountId: string | null;
+  bufferChannelId: string | null;
   defaultLanguage: string;
   defaultTimezone: string;
   maxResults: number;
@@ -3077,7 +3077,7 @@ export interface TwitterStatus {
     folder: string;
     notes: { pending: number; written: number; failed: number };
   };
-  zernio: { configured: boolean };
+  buffer: { configured: boolean };
   xApi: { configured: boolean };
   openRouter: { configured: boolean };
   capabilities: { research: string[]; publishing: Record<string, boolean | number> };
@@ -3973,7 +3973,7 @@ export const api = {
     }),
   getTwitterStatus: (projectKey: string) =>
     request<TwitterStatus>(`${twitterBase(projectKey)}/status`),
-  testTwitterConnection: (projectKey: string, target: 'obsidian' | 'zernio' | 'x_api') =>
+  testTwitterConnection: (projectKey: string, target: 'obsidian' | 'buffer' | 'x_api') =>
     request<{ ok: boolean; message: string }>(`${twitterBase(projectKey)}/status/test`, {
       method: 'POST',
       body: JSON.stringify({ target }),

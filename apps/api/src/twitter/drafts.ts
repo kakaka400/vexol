@@ -41,7 +41,7 @@ export interface PublishJobDto {
   accountHandle: string | null;
   scheduledFor: string | null;
   timezone: string;
-  zernioPostId: string | null;
+  bufferPostId: string | null;
   platformPostUrl: string | null;
   lastError: string | null;
   retryCount: number;
@@ -301,7 +301,7 @@ function presentJob(row: {
     accountHandle: job.accountHandle,
     scheduledFor: job.scheduledFor ? iso(job.scheduledFor) : null,
     timezone: job.timezone,
-    zernioPostId: job.zernioPostId,
+    bufferPostId: job.bufferPostId,
     platformPostUrl: job.platformPostUrl,
     lastError: job.lastError,
     retryCount: job.retryCount,
@@ -454,13 +454,13 @@ export interface PublishRequest {
 }
 
 // The stored state of one publication: one row per draft version. A retry after
-// a timeout (`unknown`) must send the same request with the same key, so Zernio
-// returns the post it may already have created; a retry after a refusal
-// (`failed`) is a new request and gets a new key.
+// a timeout (`unknown`) must send the same request, and the caller first looks in
+// Buffer for the post the unanswered attempt may have created (`unknownSince`);
+// a retry after a refusal (`failed`) is a new request.
 export async function beginPublish(request: PublishRequest): Promise<{
   jobId: string;
   correlationId: string;
-  zernioKey: string;
+  unknownSince: Date | null;
   alreadyDone: boolean;
 }> {
   return db.transaction(async (tx) => {
@@ -496,7 +496,7 @@ export async function beginPublish(request: PublishRequest): Promise<{
       return {
         jobId: existing.id,
         correlationId: existing.correlationId,
-        zernioKey: '',
+        unknownSince: null,
         alreadyDone: true,
       };
     }
@@ -505,7 +505,7 @@ export async function beginPublish(request: PublishRequest): Promise<{
       existing.status === 'pending' &&
       Date.now() - existing.updatedAt.getTime() < 120_000
     ) {
-      throw new HttpError(409, 'This version is being sent to Zernio right now');
+      throw new HttpError(409, 'This version is being sent to Buffer right now');
     }
     const sameRequest =
       existing &&
@@ -515,7 +515,7 @@ export async function beginPublish(request: PublishRequest): Promise<{
     if (existing && existing.status !== 'failed' && !sameRequest) {
       throw new HttpError(
         409,
-        'The previous attempt has no confirmed outcome. Retry with the same account and time, or check the post in Zernio first.',
+        'The previous attempt has no confirmed outcome. Retry with the same account and time, or check the post in Buffer first.',
       );
     }
 
@@ -583,7 +583,7 @@ export async function beginPublish(request: PublishRequest): Promise<{
     return {
       jobId: job.id,
       correlationId: job.correlationId,
-      zernioKey: `twitter-${draft.id}-v${request.version}-r${job.retryCount}`,
+      unknownSince: existing?.status === 'unknown' ? existing.confirmedAt : null,
       alreadyDone: false,
     };
   });
@@ -596,7 +596,7 @@ export async function finishPublish(input: {
     | {
         kind: 'accepted';
         status: 'scheduled' | 'published' | 'failed';
-        zernioPostId: string;
+        bufferPostId: string;
         platformPostUrl: string | null;
         response: Record<string, unknown>;
         error: string | null;
@@ -630,7 +630,7 @@ export async function finishPublish(input: {
         status,
         ...(outcome.kind === 'accepted'
           ? {
-              zernioPostId: outcome.zernioPostId,
+              bufferPostId: outcome.bufferPostId,
               platformPostUrl: outcome.platformPostUrl,
               response: outcome.response,
             }
@@ -667,19 +667,19 @@ export async function finishPublish(input: {
         level: status === 'failed' ? 'error' : status === 'unknown' ? 'warning' : 'info',
         summary:
           status === 'unknown'
-            ? `No answer from Zernio: ${outcome.error}. A retry is safe: it reuses the same idempotency key.`
+            ? `No answer from Buffer: ${outcome.error}. A retry is safe: it first checks Buffer for the post.`
             : status === 'failed'
               ? `Publication failed: ${outcome.kind === 'accepted' ? outcome.error : outcome.error}`
               : status === 'published'
-                ? 'Published on X through Zernio'
+                ? 'Published on X through Buffer'
                 : job.mode === 'now'
-                  ? 'Accepted by Zernio for publishing'
-                  : 'Scheduled in Zernio',
+                  ? 'Accepted by Buffer for publishing'
+                  : 'Scheduled in Buffer',
         correlationId: job.correlationId,
         subjectType: 'publish_job',
         subjectId: job.id,
         actorUserId: input.userId,
-        detail: outcome.kind === 'accepted' ? { zernioPostId: outcome.zernioPostId } : {},
+        detail: outcome.kind === 'accepted' ? { bufferPostId: outcome.bufferPostId } : {},
       },
       tx,
     );

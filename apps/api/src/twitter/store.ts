@@ -140,7 +140,7 @@ export async function noteStatusCounts(projectId: number) {
 // ---------------------------------------------------------------- settings
 
 export interface TwitterSettingsDto {
-  zernioAccountId: string | null;
+  bufferChannelId: string | null;
   defaultLanguage: string;
   defaultTimezone: string;
   maxResults: number;
@@ -149,7 +149,7 @@ export interface TwitterSettingsDto {
 }
 
 const DEFAULT_SETTINGS: TwitterSettingsDto = {
-  zernioAccountId: null,
+  bufferChannelId: null,
   defaultLanguage: 'en',
   defaultTimezone: 'Europe/Amsterdam',
   maxResults: 25,
@@ -164,7 +164,7 @@ export async function getSettings(projectId: number): Promise<TwitterSettingsDto
     .where(eq(twitterSettings.projectId, projectId));
   if (!row) return { ...DEFAULT_SETTINGS };
   return {
-    zernioAccountId: row.zernioAccountId,
+    bufferChannelId: row.bufferChannelId,
     defaultLanguage: row.defaultLanguage,
     defaultTimezone: row.defaultTimezone,
     maxResults: row.maxResults,

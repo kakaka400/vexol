@@ -32,7 +32,7 @@ export default function TwitterSourceChain({
         <DialogHeader>
           <DialogTitle>Source chain</DialogTitle>
           <DialogDescription>
-            Research item → drafts → publications through Zernio.
+            Research item → drafts → publications through Buffer.
           </DialogDescription>
         </DialogHeader>
         {item && (
@@ -65,7 +65,7 @@ export default function TwitterSourceChain({
                     >
                       {job.status}
                     </TwitterBadge>
-                    Zernio {job.zernioPostId ?? '—'} · confirmed by{' '}
+                    Buffer {job.bufferPostId ?? '—'} · confirmed by{' '}
                     {job.confirmedByName ?? 'unknown'}
                     {safeHref(job.platformPostUrl) && (
                       <a

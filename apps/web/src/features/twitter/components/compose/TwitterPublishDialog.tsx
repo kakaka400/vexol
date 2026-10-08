@@ -23,7 +23,7 @@ export default function TwitterPublishDialog({
         <DialogHeader>
           <DialogTitle>Preview and publish</DialogTitle>
           <DialogDescription>
-            Zernio posts the confirmed version to the chosen X account. Nothing is sent until you
+            Buffer posts the confirmed version to the chosen X account. Nothing is sent until you
             confirm.
           </DialogDescription>
         </DialogHeader>

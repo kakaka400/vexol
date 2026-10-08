@@ -6,7 +6,7 @@ import { useTwitter } from '../../context/TwitterContext';
 import { useRetryTwitterNotes, useTestTwitterConnection } from '../../services/twitter.service';
 import TwitterBadge from '../TwitterBadge';
 
-type Target = 'obsidian' | 'zernio' | 'x_api';
+type Target = 'obsidian' | 'buffer' | 'x_api';
 
 // The state of every connection the section depends on. Secret values never
 // reach the browser; only whether each one is configured.
@@ -34,12 +34,12 @@ export default function TwitterConnections({ status }: { status: TwitterStatus }
       target: 'obsidian',
     },
     {
-      name: 'Zernio (publishing)',
-      ok: status.zernio.configured,
-      detail: status.zernio.configured
+      name: 'Buffer (publishing)',
+      ok: status.buffer.configured,
+      detail: status.buffer.configured
         ? 'API key configured'
-        : 'Add a Zernio API key under Integrations',
-      target: 'zernio',
+        : 'Add a Buffer API key under Integrations',
+      target: 'buffer',
     },
     {
       name: 'X API (research)',
@@ -85,7 +85,7 @@ export default function TwitterConnections({ status }: { status: TwitterStatus }
         ))}
       </ul>
       <p className="text-xs text-muted-foreground">
-        Research: {status.capabilities.research.join(', ')}. Publishing through Zernio:{' '}
+        Research: {status.capabilities.research.join(', ')}. Publishing through Buffer:{' '}
         {Object.entries(status.capabilities.publishing)
           .filter(([, value]) => value === true)
           .map(([key]) => key)

@@ -28,7 +28,7 @@ export default function TwitterPublishForm({
   const { projectKey } = useTwitter();
   const settings = useTwitterSettingsQuery(projectKey).data;
   const [target, setTarget] = useState<PublishTarget>({
-    accountId: settings?.zernioAccountId ?? '',
+    accountId: settings?.bufferChannelId ?? '',
     mode: 'schedule',
     when: '',
     timezone: settings?.defaultTimezone ?? SCHEDULE_TIME_ZONE,

@@ -170,8 +170,8 @@ export function usePublishTwitterDraft(projectKey: string, draftId: string) {
     onSuccess: (draft) => {
       const job = draft.publications[0];
       if (draft.status === 'published') toast.success('Published on X');
-      else if (draft.status === 'scheduled') toast.success('Handed to Zernio');
-      else if (job?.status === 'unknown') toast.warning('No answer from Zernio. Retrying is safe.');
+      else if (draft.status === 'scheduled') toast.success('Handed to Buffer');
+      else if (job?.status === 'unknown') toast.warning('No answer from Buffer. Retrying is safe.');
       else toast.error(job?.lastError ?? 'Publishing failed');
     },
     onSettled: () => {
@@ -231,7 +231,7 @@ export function useUpdateTwitterSettings(projectKey: string) {
 
 export function useTestTwitterConnection(projectKey: string) {
   return useMutation({
-    mutationFn: (target: 'obsidian' | 'zernio' | 'x_api') =>
+    mutationFn: (target: 'obsidian' | 'buffer' | 'x_api') =>
       api.testTwitterConnection(projectKey, target),
     onSuccess: (result) =>
       result.ok ? toast.success(result.message) : toast.error(result.message),

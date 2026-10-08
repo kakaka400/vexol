@@ -11,7 +11,7 @@ import TwitterBadge from '../TwitterBadge';
 const STATUS_LABEL = {
   pending: 'Sending',
   unknown: 'Outcome unknown',
-  scheduled: 'Accepted by Zernio',
+  scheduled: 'Accepted by Buffer',
   published: 'Published',
   failed: 'Failed',
 } as const;
@@ -53,7 +53,7 @@ export default function TwitterPublicationList({ draft }: { draft: TwitterDraft 
             </div>
             <p className="text-xs text-muted-foreground">
               Confirmed by {job.confirmedByName ?? 'unknown'} on {formatDate(job.confirmedAt)} ·
-              Zernio {job.zernioPostId ?? '—'}
+              Buffer {job.bufferPostId ?? '—'}
               {safeHref(job.platformPostUrl) && (
                 <>
                   {' · '}
@@ -71,8 +71,8 @@ export default function TwitterPublicationList({ draft }: { draft: TwitterDraft 
             {job.lastError && <p className="text-xs text-destructive">{job.lastError}</p>}
             {job.status === 'unknown' && (
               <p className="text-xs text-muted-foreground">
-                Zernio did not answer. Publishing again with the same account and time is safe: it
-                reuses the same idempotency key.
+                Buffer did not answer. Publishing again with the same account and time is safe: it
+                first checks Buffer for the post.
               </p>
             )}
           </li>

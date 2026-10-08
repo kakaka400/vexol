@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { checkPosts, splitThread, unsourcedNumbers, weightedLength } from '../../compose';
 import { itemNotePath, renderItemNote, runNotePath } from '../../notes';
-import { readZernioPost, zernioBody } from '../../publish';
+import { createPostInput, readBufferPost } from '../../publish';
 import { resolveInVault, safeSegment, writeVaultNote } from '../../vault';
 
 const note = {
@@ -182,82 +182,78 @@ describe('composing for X', () => {
   });
 });
 
-describe('Zernio payloads', () => {
-  it('sends a single post with its images and publishNow', () => {
+describe('Buffer payloads', () => {
+  it('sends a single post with its images and shareNow', () => {
     expect(
-      zernioBody({
+      createPostInput({
         posts: ['Hello'],
         images: ['https://api/x.png'],
-        accountId: 'acc',
+        channelId: 'ch',
         mode: 'now',
         scheduledFor: null,
-        timezone: 'UTC',
       }),
     ).toEqual({
-      content: 'Hello',
-      mediaItems: [{ type: 'image', url: 'https://api/x.png' }],
-      platforms: [{ platform: 'twitter', accountId: 'acc' }],
-      publishNow: true,
+      text: 'Hello',
+      channelId: 'ch',
+      schedulingType: 'automatic',
+      mode: 'shareNow',
+      assets: [{ image: { url: 'https://api/x.png' } }],
     });
   });
 
-  it('sends a thread as threadItems at the wall-clock time of its zone', () => {
-    const body = zernioBody({
+  it('sends a thread as metadata.twitter.thread with the images on the first post', () => {
+    const input = createPostInput({
       posts: ['One', 'Two'],
-      images: [],
-      accountId: 'acc',
+      images: ['https://api/x.png'],
+      channelId: 'ch',
       mode: 'schedule',
       scheduledFor: new Date('2026-12-01T09:00:00Z'),
-      timezone: 'Europe/Amsterdam',
     });
-    expect(body).toMatchObject({
-      content: 'One',
-      platforms: [
-        {
-          platform: 'twitter',
-          accountId: 'acc',
-          platformSpecificData: { threadItems: [{ content: 'One' }, { content: 'Two' }] },
-        },
-      ],
-      scheduledFor: '2026-12-01T10:00:00',
-      timezone: 'Europe/Amsterdam',
-    });
-    expect(body).not.toHaveProperty('publishNow');
-  });
-
-  it("reads Zernio's post status and keeps only known fields", () => {
-    expect(
-      readZernioPost({
-        post: {
-          _id: 'zp1',
-          status: 'published',
-          accessToken: 'secret',
-          platforms: [
-            {
-              platform: 'twitter',
-              status: 'published',
-              platformPostUrl: 'https://twitter.com/a/status/9',
-            },
+    expect(input).toEqual({
+      text: 'One',
+      channelId: 'ch',
+      schedulingType: 'automatic',
+      mode: 'customScheduled',
+      dueAt: '2026-12-01T09:00:00.000Z',
+      assets: [],
+      metadata: {
+        twitter: {
+          thread: [
+            { text: 'One', assets: [{ image: { url: 'https://api/x.png' } }] },
+            { text: 'Two', assets: [] },
           ],
         },
+      },
+    });
+  });
+
+  it("reads Buffer's post status and keeps only known fields", () => {
+    expect(
+      readBufferPost({
+        id: 'bp1',
+        status: 'sent',
+        accessToken: 'secret',
+        externalLink: 'https://twitter.com/a/status/9',
       }),
     ).toMatchObject({
       kind: 'accepted',
       status: 'published',
-      zernioPostId: 'zp1',
+      bufferPostId: 'bp1',
       platformPostUrl: 'https://twitter.com/a/status/9',
     });
+    expect(JSON.stringify(readBufferPost({ id: 'x', accessToken: 'secret' }))).not.toContain(
+      'secret',
+    );
+    expect(readBufferPost({ id: 'x', status: 'scheduled' })).toMatchObject({
+      status: 'scheduled',
+      error: null,
+    });
     expect(
-      JSON.stringify(readZernioPost({ post: { _id: 'x', accessToken: 'secret' } })),
-    ).not.toContain('secret');
-    expect(
-      readZernioPost({
-        post: { _id: 'x', platforms: [{ status: 'failed', errorMessage: 'Duplicate' }] },
-      }),
+      readBufferPost({ id: 'x', status: 'error', error: { message: 'Duplicate' } }),
     ).toMatchObject({
       status: 'failed',
       error: 'Duplicate',
     });
-    expect(readZernioPost({})).toBeNull();
+    expect(readBufferPost({})).toBeNull();
   });
 });

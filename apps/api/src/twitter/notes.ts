@@ -66,7 +66,7 @@ export interface PublishedNoteInput {
   mode: string;
   status: string;
   accountHandle: string | null;
-  zernioPostId: string | null;
+  bufferPostId: string | null;
   platformPostUrl: string | null;
   scheduledFor: string | null;
   timezone: string;
@@ -97,8 +97,8 @@ export const profileNotePath = (handle: string) =>
 export const draftNotePath = (draftId: string) =>
   `${TWITTER_FOLDER}/Drafts/${safeSegment(draftId)}.md`;
 
-export const publishedNotePath = (job: { id: string; zernioPostId: string | null }) =>
-  `${TWITTER_FOLDER}/Published/${safeSegment(job.zernioPostId ?? job.id)}.md`;
+export const publishedNotePath = (job: { id: string; bufferPostId: string | null }) =>
+  `${TWITTER_FOLDER}/Published/${safeSegment(job.bufferPostId ?? job.id)}.md`;
 
 export const DASHBOARD_NOTE_PATH = `${TWITTER_FOLDER}/Dashboard.md`;
 
@@ -352,7 +352,7 @@ export function renderPublishedNote(job: PublishedNoteInput): string {
     mode: job.mode,
     status: job.status,
     account: job.accountHandle,
-    zernio_post_id: job.zernioPostId,
+    buffer_post_id: job.bufferPostId,
     platform_post_url: job.platformPostUrl,
     scheduled_for: job.scheduledFor,
     timezone: job.timezone,
@@ -360,7 +360,7 @@ export function renderPublishedNote(job: PublishedNoteInput): string {
     confirmed_at: job.confirmedAt,
     correlation_id: job.correlationId,
   });
-  lines.push(`# Publication ${job.zernioPostId ?? job.id.slice(0, 8)}`, '');
+  lines.push(`# Publication ${job.bufferPostId ?? job.id.slice(0, 8)}`, '');
   job.posts.forEach((post) => lines.push(...quote(post), ''));
   lines.push(`- Draft: ${wikiLink(job.draftNotePath, `draft v${job.version}`)}`);
   if (job.platformPostUrl) lines.push(`- On X: <${job.platformPostUrl}>`);

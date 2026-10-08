@@ -2,7 +2,7 @@
 
 Growth → Social → Twitter (`/project/<KEY>/social/twitter`) collects public posts from X,
 writes every result to the Obsidian vault, and turns them into posts that a person
-confirms before Zernio publishes them.
+confirms before Buffer publishes them.
 
 ## Research
 
@@ -34,7 +34,7 @@ Socials/Twitter/
   Posts/<post-id-or-hash>.md
   Profiles/<handle>.md
   Drafts/<draft-id>.md
-  Published/<zernio-post-id>.md
+  Published/<buffer-post-id>.md
 ```
 
 Every write is a job in `obsidian_ingest_job`, created in the same transaction as the
@@ -47,11 +47,14 @@ where "Write failed notes again" requests it again.
 ## Publishing
 
 Drafts hold one post or a thread in immutable versions, with the research items they
-use as sources. Publishing goes through the project's Zernio key, the same client
-Studio uses. A person checks the version (`validate`), confirms the preview, and then
-schedules or publishes; the request carries the confirmed content hash. Agents get 403.
-Each version is sent with an idempotency key, so a retry after a timeout cannot post
-twice. Publishing needs the `twitter_publish.create` permission, separate from research.
+use as sources. Publishing goes through the project's Buffer key (Buffer GraphQL API,
+`https://api.buffer.com`); a thread is one Buffer post with `metadata.twitter.thread`.
+A person checks the version (`validate`), confirms the preview, and then schedules or
+publishes; the request carries the confirmed content hash. Agents get 403. Buffer has
+no idempotency key, so a retry after a timeout first looks on the channel for a post
+with the same text created since the unanswered attempt, and sends again only when
+there is none. Publishing needs the `twitter_publish.create` permission, separate from
+research.
 
 ## MCP
 
@@ -69,8 +72,10 @@ Every call is written to the project's Twitter activity log.
 
 1. Set `OBSIDIAN_VAULT_DIR` on the API (and `OBSIDIAN_VAULT_NAME` when the vault is
    named differently from that folder, for `obsidian://` links).
-2. In the project, add an **X API** credential (bearer token) and a **Zernio** credential
-   under Settings → Integrations. Connect the X account in Zernio.
+2. In the project, add a **Buffer** credential (API key from Buffer → Settings → API) under
+   Settings → Integrations, and connect the X account as a channel in Buffer. An **X API**
+   credential (bearer token) is optional: without it, research reads post URLs through
+   X oEmbed, and a research agent stores what it finds with `ingest_research_results`.
 3. Give members roles with `twitter` (research, library, drafts) and, for those who may
    publish, `twitter_publish.create`.
 4. For agents: create an external agent per endpoint (for example a research agent with

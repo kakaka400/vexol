@@ -49,7 +49,7 @@ export default function TwitterPage() {
     >
       <SectionPageView
         title="Twitter"
-        description="Research public posts on X, keep every result in Obsidian, and publish posts through Zernio after you confirm them."
+        description="Research public posts on X, keep every result in Obsidian, and publish posts through Buffer after you confirm them."
         wide
       >
         <Tabs key={projectKey} value={tab} onValueChange={setTab} className="pb-8">
