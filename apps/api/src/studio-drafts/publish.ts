@@ -46,7 +46,7 @@ export async function listPublishAccounts(apiKey: string): Promise<PublishAccoun
 
 // The wall-clock time in the given zone, without an offset: Zernio reads
 // scheduledFor in the time zone sent with it.
-function wallClock(at: Date, timeZone: string): string {
+export function wallClock(at: Date, timeZone: string): string {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-CA', {
       timeZone,

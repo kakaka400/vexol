@@ -1,7 +1,8 @@
 import { t } from 'elysia';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { auth } from '@repo/auth';
-import { buildMcpServer } from './server';
+import { MCP_SERVERS } from './generate';
+import { buildMcpServer, type McpScope } from './server';
 import type { McpApp } from './types';
 
 // The API key on the request. MCP clients send Authorization: Bearer <key>;
@@ -23,11 +24,14 @@ function extractApiKey(request: Request): string | null {
 // Typed as `any` because it is the composition root: it needs Elysia's `.post` to
 // register the route, and Elysia's generics are invariant, so a precise parameter
 // type would reject the concrete app. The captured `app` is passed on as McpApp.
+//
+// With a scope it mounts a dedicated endpoint instead (MCP_SERVERS), which serves
+// only the tools tagged for it.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function mountMcp(app: any): void {
+export function mountMcp(app: any, scope?: McpScope): void {
   const mcpApp = app as McpApp;
   app.post(
-    '/mcp',
+    scope ? MCP_SERVERS[scope.server].path : '/mcp',
     async ({
       request,
       body,
@@ -43,7 +47,7 @@ export function mountMcp(app: any): void {
         headers.set('x-api-key', apiKey);
         const session = await auth.api.getSession({ headers });
         if (session) {
-          const server = buildMcpServer(mcpApp, apiKey);
+          const server = buildMcpServer(mcpApp, apiKey, scope);
           const transport = new WebStandardStreamableHTTPServerTransport({
             sessionIdGenerator: undefined,
           });

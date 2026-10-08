@@ -34,7 +34,24 @@ export interface McpRouteTool {
   pathParams: string[];
   inputSchema: McpInputSchema;
   annotations: McpToolAnnotations;
+  // The dedicated MCP endpoint the tool belongs to (see MCP_SERVERS), or undefined
+  // for a tool of the general /mcp endpoint.
+  server?: McpServerName;
 }
+
+// Dedicated MCP endpoints with their own, separate tool set. A route joins one by
+// naming it in mcpTool(); its tool is then served only there, not on /mcp.
+export const MCP_SERVERS = {
+  'twitter-research': {
+    path: '/mcp/twitter-research',
+    title: 'Vexol Twitter research',
+  },
+  'twitter-agent': {
+    path: '/mcp/twitter-agent',
+    title: 'Vexol Twitter agent',
+  },
+} as const;
+export type McpServerName = keyof typeof MCP_SERVERS;
 
 // Marks a route as an MCP tool. Spread into a route's `detail`:
 //
@@ -53,8 +70,9 @@ export interface McpRouteTool {
 export function mcpTool(
   tool: string,
   annotations?: McpToolAnnotations,
-): { 'x-mcp': { tool: string; annotations?: McpToolAnnotations } } {
-  return { 'x-mcp': { tool, annotations } };
+  server?: McpServerName,
+): { 'x-mcp': { tool: string; annotations?: McpToolAnnotations; server?: McpServerName } } {
+  return { 'x-mcp': { tool, annotations, server } };
 }
 
 // What the HTTP method alone says about a route. A GET only reads; a DELETE
@@ -125,7 +143,11 @@ function generateRouteTools(app: McpApp): McpRouteTool[] {
       | {
           summary?: string;
           description?: string;
-          'x-mcp'?: { tool?: string; annotations?: McpToolAnnotations };
+          'x-mcp'?: {
+            tool?: string;
+            annotations?: McpToolAnnotations;
+            server?: McpServerName;
+          };
         }
       | undefined;
     const tool = detail?.['x-mcp']?.tool;
@@ -148,6 +170,7 @@ function generateRouteTools(app: McpApp): McpRouteTool[] {
         openWorldHint: false,
         ...detail?.['x-mcp']?.annotations,
       },
+      server: detail?.['x-mcp']?.server,
     });
   }
   return tools;

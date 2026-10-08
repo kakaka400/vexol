@@ -1,6 +1,7 @@
 import { HttpError } from '../shared/lib';
 
-const ZERNIO_API_URL = 'https://zernio.com/api/v1';
+// Overridable so a local run can point the calls at a fake.
+const zernioApiUrl = () => process.env.ZERNIO_API_URL || 'https://zernio.com/api/v1';
 
 export async function getZernio(apiKey: string, path: string, query: Record<string, string>) {
   return zernioRequest(apiKey, 'GET', path, { query });
@@ -15,7 +16,7 @@ export async function zernioRequest(
   path: string,
   options: { query?: Record<string, string>; body?: unknown; idempotencyKey?: string } = {},
 ): Promise<unknown> {
-  const url = new URL(`${ZERNIO_API_URL}${path}`);
+  const url = new URL(`${zernioApiUrl()}${path}`);
   for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value);
 
   const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };

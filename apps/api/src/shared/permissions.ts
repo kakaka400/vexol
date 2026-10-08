@@ -31,6 +31,8 @@ export const PERMISSION_RESOURCES = [
   'mind',
   'competitors',
   'studio',
+  'twitter',
+  'twitter_publish',
   'phone',
   'servers',
   'mail',

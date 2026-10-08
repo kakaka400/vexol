@@ -2251,6 +2251,8 @@ export type PermissionResource =
   | 'mind'
   | 'competitors'
   | 'studio'
+  | 'twitter'
+  | 'twitter_publish'
   | 'phone'
   | 'servers'
   | 'mail'
@@ -2881,6 +2883,257 @@ export interface StudioTemplatePatch {
 
 // A photo the image model made from a template. imageUrl is public, so it can be
 // used directly in an <img>.
+// Twitter (Growth → Social → Twitter): public X research, its Obsidian notes, and
+// drafts published through Zernio. Shapes mirror apps/api/src/twitter.
+export type TwitterRunStatus =
+  'queued' | 'running' | 'completed' | 'partial' | 'stopped' | 'failed';
+export type TwitterVerification = 'unverified' | 'verified' | 'disputed';
+
+export interface TwitterResearchInput {
+  question?: string;
+  handles?: string[];
+  urls?: string[];
+  terms?: string[];
+  hashtags?: string[];
+  since?: string;
+  until?: string;
+  language?: string;
+  maxResults?: number;
+  tags?: string[];
+  context?: string;
+}
+
+export interface TwitterRun {
+  id: string;
+  kind: 'research' | 'search' | 'profile' | 'post' | 'ingest';
+  status: TwitterRunStatus;
+  step: string | null;
+  correlationId: string;
+  input: TwitterResearchInput;
+  adapters: string[];
+  warnings: string[];
+  stopReason: string | null;
+  lastError: string | null;
+  foundCount: number;
+  retryCount: number;
+  nextAttemptAt: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  obsidianPath: string | null;
+  storage: { notes: number; written: number; pending: number; failed: number; complete: boolean };
+}
+
+export interface TwitterItem {
+  id: string;
+  postId: string | null;
+  canonicalUrl: string;
+  contentHash: string;
+  authorHandle: string;
+  authorName: string | null;
+  profileUrl: string;
+  text: string;
+  publishedAt: string | null;
+  fetchedAt: string;
+  language: string | null;
+  metrics: Record<string, number> | null;
+  media: Array<{ type?: string; url?: string | null; altText?: string | null }>;
+  links: string[];
+  query: string | null;
+  relevance: string | null;
+  adapter: string;
+  verificationStatus: TwitterVerification;
+  sourceStatus: 'ok' | 'partial' | 'unavailable';
+  warnings: string[];
+  tags: string[];
+  obsidianPath: string | null;
+  obsidianStatus: 'pending' | 'written' | 'failed' | null;
+  runIds: string[];
+  draftIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TwitterRunDetail extends TwitterRun {
+  items: TwitterItem[];
+}
+
+export interface TwitterItemFilters {
+  q?: string;
+  handle?: string;
+  tag?: string;
+  verification?: TwitterVerification;
+  runId?: string;
+  query?: string;
+  stored?: 'yes' | 'no';
+  from?: string;
+  to?: string;
+  ids?: string;
+  sort?: 'fetched' | 'published' | 'author';
+}
+
+export interface TwitterPublishJob {
+  id: string;
+  version: number;
+  mode: 'now' | 'schedule';
+  status: 'pending' | 'unknown' | 'scheduled' | 'published' | 'failed';
+  accountId: string;
+  accountHandle: string | null;
+  scheduledFor: string | null;
+  timezone: string;
+  zernioPostId: string | null;
+  platformPostUrl: string | null;
+  lastError: string | null;
+  retryCount: number;
+  correlationId: string;
+  confirmedByName: string | null;
+  confirmedAt: string;
+  obsidianPath: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TwitterDraftSource {
+  id: string;
+  authorHandle: string;
+  canonicalUrl: string;
+  text: string;
+  verificationStatus: TwitterVerification;
+  obsidianPath: string | null;
+}
+
+export interface TwitterDraft {
+  id: string;
+  status: 'draft' | 'scheduled' | 'published' | 'failed';
+  kind: 'single' | 'thread';
+  currentVersion: number;
+  posts: string[];
+  tone: string | null;
+  media: Array<{ id: string; imageUrl: string | null; contentType: string | null }>;
+  contentHash: string;
+  correlationId: string;
+  createdByName: string | null;
+  createdByAgent: boolean;
+  obsidianPath: string | null;
+  sources: TwitterDraftSource[];
+  versions: Array<{
+    version: number;
+    posts: string[];
+    createdByName: string | null;
+    createdAt: string;
+  }>;
+  publications: TwitterPublishJob[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TwitterDraftContent {
+  posts: string[];
+  tone?: string;
+  media?: string[];
+  sourceItemIds?: string[];
+}
+
+export interface TwitterPostCheck {
+  index: number;
+  text: string;
+  length: number;
+  overLimit: boolean;
+}
+
+export interface TwitterPreview {
+  draftId: string;
+  version: number;
+  contentHash: string;
+  kind: string;
+  maxLength: number;
+  posts: TwitterPostCheck[];
+  issues: string[];
+  warnings: string[];
+  media: TwitterDraft['media'];
+  sources: TwitterDraftSource[];
+}
+
+export interface TwitterChannel {
+  id: string;
+  platform: string;
+  username: string;
+  displayName: string;
+  profilePicture: string | null;
+  connected: boolean;
+}
+
+export interface TwitterValidation extends TwitterPreview {
+  ok: boolean;
+  account: TwitterChannel | null;
+  mode: 'now' | 'schedule';
+  scheduledFor: string | null;
+  timezone: string;
+}
+
+export interface TwitterPublishInput {
+  version: number;
+  contentHash: string;
+  accountId: string;
+  timezone: string;
+  scheduledFor?: string;
+  confirm: true;
+}
+
+export interface TwitterActivity {
+  id: number;
+  event: string;
+  level: 'info' | 'warning' | 'error';
+  correlationId: string | null;
+  subjectType: string | null;
+  subjectId: string | null;
+  actorName: string | null;
+  summary: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface TwitterSettings {
+  zernioAccountId: string | null;
+  defaultLanguage: string;
+  defaultTimezone: string;
+  maxResults: number;
+  retentionDays: number;
+  toneOfVoice: string;
+}
+
+export interface TwitterStatus {
+  researchMcp: { path: string; enabled: boolean };
+  agentMcp: { path: string; enabled: boolean };
+  obsidian: {
+    configured: boolean;
+    vaultName: string | null;
+    folder: string;
+    notes: { pending: number; written: number; failed: number };
+  };
+  zernio: { configured: boolean };
+  xApi: { configured: boolean };
+  openRouter: { configured: boolean };
+  capabilities: { research: string[]; publishing: Record<string, boolean | number> };
+}
+
+export interface TwitterChannels {
+  configured: boolean;
+  error: string | null;
+  channels: TwitterChannel[];
+  capabilities: Record<string, boolean | number>;
+}
+
+function queryString(filters: object): string {
+  const query = new URLSearchParams(
+    Object.entries(filters).filter((entry): entry is [string, string] => Boolean(entry[1])),
+  ).toString();
+  return query ? `?${query}` : '';
+}
+
+const twitterBase = (projectKey: string) => `/projects/${encodeURIComponent(projectKey)}/twitter`;
+
 export interface StudioPost {
   id: string;
   slot: number;
@@ -3607,6 +3860,121 @@ export const api = {
       `/projects/${encodeURIComponent(projectKey)}/studio/drafts/${encodeURIComponent(draftId)}/${action}`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
+  listTwitterRuns: (projectKey: string) =>
+    request<TwitterRun[]>(`${twitterBase(projectKey)}/research/runs`),
+  getTwitterRun: (projectKey: string, runId: string) =>
+    request<TwitterRunDetail>(
+      `${twitterBase(projectKey)}/research/runs/${encodeURIComponent(runId)}`,
+    ),
+  startTwitterResearch: (
+    projectKey: string,
+    mode: 'runs' | 'search' | 'profile' | 'post',
+    input: TwitterResearchInput & { idempotencyKey: string },
+  ) =>
+    request<TwitterRunDetail>(`${twitterBase(projectKey)}/research/${mode}`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  listTwitterItems: (projectKey: string, filters: TwitterItemFilters) =>
+    request<TwitterItem[]>(`${twitterBase(projectKey)}/items${queryString(filters)}`),
+  updateTwitterItems: (
+    projectKey: string,
+    patch: {
+      ids: string[];
+      addTags?: string[];
+      removeTags?: string[];
+      verificationStatus?: TwitterVerification;
+    },
+  ) =>
+    request<{ updated: number }>(`${twitterBase(projectKey)}/items`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  listTwitterTags: (projectKey: string) => request<string[]>(`${twitterBase(projectKey)}/tags`),
+  listTwitterDrafts: (projectKey: string) =>
+    request<TwitterDraft[]>(`${twitterBase(projectKey)}/drafts`),
+  createTwitterDraft: (
+    projectKey: string,
+    input: TwitterDraftContent & { idempotencyKey: string },
+  ) =>
+    request<TwitterDraft>(`${twitterBase(projectKey)}/drafts`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  reviseTwitterDraft: (
+    projectKey: string,
+    draftId: string,
+    input: TwitterDraftContent & { baseVersion: number },
+  ) =>
+    request<TwitterDraft>(
+      `${twitterBase(projectKey)}/drafts/${encodeURIComponent(draftId)}/versions`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  previewTwitterDraft: (projectKey: string, draftId: string) =>
+    request<TwitterPreview>(
+      `${twitterBase(projectKey)}/drafts/${encodeURIComponent(draftId)}/preview`,
+    ),
+  splitTwitterThread: (projectKey: string, text: string) =>
+    request<{ posts: string[] }>(`${twitterBase(projectKey)}/compose/thread`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  twitterVariations: (
+    projectKey: string,
+    input: { text: string; tone?: string; sourceItemIds?: string[] },
+  ) =>
+    request<{ variations: TwitterPostCheck[] }>(`${twitterBase(projectKey)}/compose/variations`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  listTwitterChannels: (projectKey: string) =>
+    request<TwitterChannels>(`${twitterBase(projectKey)}/channels`),
+  validateTwitterDraft: (
+    projectKey: string,
+    draftId: string,
+    input: {
+      accountId?: string;
+      mode: 'now' | 'schedule';
+      scheduledFor?: string;
+      timezone: string;
+    },
+  ) =>
+    request<TwitterValidation>(
+      `${twitterBase(projectKey)}/drafts/${encodeURIComponent(draftId)}/validate`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  publishTwitterDraft: (
+    projectKey: string,
+    draftId: string,
+    mode: 'now' | 'schedule',
+    input: TwitterPublishInput,
+  ) =>
+    request<TwitterDraft>(
+      `${twitterBase(projectKey)}/drafts/${encodeURIComponent(draftId)}/${mode === 'now' ? 'publish' : 'schedule'}`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  getTwitterPublishJob: (projectKey: string, jobId: string) =>
+    request<TwitterPublishJob & { draftId: string }>(
+      `${twitterBase(projectKey)}/publish-jobs/${encodeURIComponent(jobId)}`,
+    ),
+  listTwitterActivity: (projectKey: string, filters: { level?: string; event?: string } = {}) =>
+    request<TwitterActivity[]>(`${twitterBase(projectKey)}/activity${queryString(filters)}`),
+  getTwitterSettings: (projectKey: string) =>
+    request<TwitterSettings>(`${twitterBase(projectKey)}/settings`),
+  updateTwitterSettings: (projectKey: string, patch: Partial<TwitterSettings>) =>
+    request<TwitterSettings>(`${twitterBase(projectKey)}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  getTwitterStatus: (projectKey: string) =>
+    request<TwitterStatus>(`${twitterBase(projectKey)}/status`),
+  testTwitterConnection: (projectKey: string, target: 'obsidian' | 'zernio' | 'x_api') =>
+    request<{ ok: boolean; message: string }>(`${twitterBase(projectKey)}/status/test`, {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    }),
+  retryTwitterNotes: (projectKey: string) =>
+    request<{ requeued: number }>(`${twitterBase(projectKey)}/obsidian/retry`, { method: 'POST' }),
   getServerOverview: (projectKey: string) =>
     request<ServerOverview>(`/projects/${encodeURIComponent(projectKey)}/servers/overview`),
   listServers: (projectKey: string) =>

@@ -32,6 +32,9 @@ export const serversPath = (key: string) => `${projectPath(key)}/servers`;
 export const serverConsolePath = (key: string, serverId: number) =>
   `${serversPath(key)}/${serverId}`;
 export const socialPath = (key: string) => `${projectPath(key)}/social`;
+export const twitterPath = (key: string) => `${socialPath(key)}/twitter`;
+export const isTwitterPath = (pathname: string) =>
+  /^\/project\/[^/]+\/social\/twitter(?:\/|$)/.test(pathname);
 export const competitorsPath = (key: string) => `${projectPath(key)}/competitors`;
 export const studioPath = (key: string) => `${projectPath(key)}/studio`;
 export const phonePath = (key: string) => `${projectPath(key)}/phone`;

@@ -2062,3 +2062,327 @@ export const projectMailSummary = pgTable(
   },
   (t) => [unique('project_mail_summary_key_unique').on(t.projectId, t.messageKey)],
 );
+
+// Twitter (Growth → Social → Twitter): public X research, its Obsidian notes, and
+// the drafts that are published through Zernio. Obsidian holds the durable notes;
+// these tables are the index the page queries and the job state of the writes.
+
+// One research request. Every way of collecting posts creates a run: a queued run
+// the worker executes, a direct lookup executed in the request, and items an
+// external research agent hands in. `status` ends in completed, partial (some
+// adapters failed), stopped (a 401/403/429 or refusal, never retried) or failed.
+export const twitterResearchRun = pgTable(
+  'twitter_research_run',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    idempotencyKey: uuid('idempotency_key').notNull(),
+    correlationId: uuid('correlation_id').notNull().defaultRandom(),
+    kind: text('kind').notNull(),
+    status: text('status').notNull().default('queued'),
+    step: text('step'),
+    input: jsonb('input').$type<Record<string, unknown>>().notNull(),
+    adapters: jsonb('adapters').$type<string[]>().notNull().default([]),
+    warnings: jsonb('warnings').$type<string[]>().notNull().default([]),
+    stopReason: text('stop_reason'),
+    lastError: text('last_error'),
+    foundCount: integer('found_count').notNull().default(0),
+    retryCount: integer('retry_count').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    obsidianPath: text('obsidian_path'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('twitter_research_run_idempotency_unique').on(t.projectId, t.idempotencyKey),
+    index('twitter_research_run_project_idx').on(t.projectId, t.createdAt.desc()),
+    index('twitter_research_run_due_idx').on(t.status, t.nextAttemptAt),
+    check(
+      'twitter_research_run_kind_check',
+      sql`${t.kind} IN ('research', 'search', 'profile', 'post', 'ingest')`,
+    ),
+    check(
+      'twitter_research_run_status_check',
+      sql`${t.status} IN ('queued', 'running', 'completed', 'partial', 'stopped', 'failed')`,
+    ),
+  ],
+);
+
+// A public X account that research touched. `handle` is lowercased without @.
+export const twitterProfile = pgTable(
+  'twitter_profile',
+  {
+    id: serial('id').primaryKey(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    handle: text('handle').notNull(),
+    name: text('name'),
+    description: text('description'),
+    followers: integer('followers'),
+    profileUrl: text('profile_url').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+    obsidianPath: text('obsidian_path'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique('twitter_profile_project_handle_unique').on(t.projectId, t.handle)],
+);
+
+// One public post, deduplicated per project by post id, then canonical URL, then
+// content hash (three unique indexes, so a race cannot insert a second copy).
+export const twitterResearchItem = pgTable(
+  'twitter_research_item',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    firstRunId: uuid('first_run_id').references(() => twitterResearchRun.id, {
+      onDelete: 'set null',
+    }),
+    postId: text('post_id'),
+    canonicalUrl: text('canonical_url').notNull(),
+    contentHash: text('content_hash').notNull(),
+    authorHandle: text('author_handle').notNull(),
+    authorName: text('author_name'),
+    profileUrl: text('profile_url').notNull(),
+    text: text('text').notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+    language: text('language'),
+    metrics: jsonb('metrics').$type<Record<string, number> | null>(),
+    media: jsonb('media').$type<Array<Record<string, unknown>>>().notNull().default([]),
+    links: jsonb('links').$type<string[]>().notNull().default([]),
+    query: text('query'),
+    relevance: text('relevance'),
+    adapter: text('adapter').notNull(),
+    verificationStatus: text('verification_status').notNull().default('unverified'),
+    sourceStatus: text('source_status').notNull().default('ok'),
+    warnings: jsonb('warnings').$type<string[]>().notNull().default([]),
+    tags: jsonb('tags').$type<string[]>().notNull().default([]),
+    obsidianPath: text('obsidian_path'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('twitter_research_item_post_unique')
+      .on(t.projectId, t.postId)
+      .where(sql`${t.postId} IS NOT NULL`),
+    unique('twitter_research_item_url_unique').on(t.projectId, t.canonicalUrl),
+    unique('twitter_research_item_hash_unique').on(t.projectId, t.contentHash),
+    index('twitter_research_item_project_idx').on(t.projectId, t.fetchedAt.desc()),
+    check(
+      'twitter_research_item_verification_check',
+      sql`${t.verificationStatus} IN ('unverified', 'verified', 'disputed')`,
+    ),
+    check(
+      'twitter_research_item_source_check',
+      sql`${t.sourceStatus} IN ('ok', 'partial', 'unavailable')`,
+    ),
+  ],
+);
+
+// Which runs found an item, so the library can filter by run and a second run
+// that finds the same post links it instead of copying it.
+export const twitterResearchRunItem = pgTable(
+  'twitter_research_run_item',
+  {
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => twitterResearchRun.id, { onDelete: 'cascade' }),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => twitterResearchItem.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.runId, t.itemId] })],
+);
+
+// A post or thread being written. Content lives in immutable versions; a
+// publication names the exact version a person confirmed.
+export const twitterDraft = pgTable(
+  'twitter_draft',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    idempotencyKey: uuid('idempotency_key').notNull(),
+    correlationId: uuid('correlation_id').notNull().defaultRandom(),
+    status: text('status').notNull().default('draft'),
+    currentVersion: integer('current_version').notNull().default(1),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+    obsidianPath: text('obsidian_path'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('twitter_draft_idempotency_unique').on(t.projectId, t.idempotencyKey),
+    index('twitter_draft_project_idx').on(t.projectId, t.updatedAt.desc()),
+    check(
+      'twitter_draft_status_check',
+      sql`${t.status} IN ('draft', 'scheduled', 'published', 'failed')`,
+    ),
+  ],
+);
+
+export const twitterDraftVersion = pgTable(
+  'twitter_draft_version',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => twitterDraft.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    // One entry for a single post, two or more for a thread, in thread order.
+    posts: jsonb('posts').$type<string[]>().notNull(),
+    tone: text('tone'),
+    // Studio image public ids, attached to the first post.
+    media: jsonb('media').$type<string[]>().notNull().default([]),
+    contentHash: text('content_hash').notNull(),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique('twitter_draft_version_unique').on(t.draftId, t.version)],
+);
+
+// The research items a draft was written from: the source chain item → draft.
+export const twitterDraftSource = pgTable(
+  'twitter_draft_source',
+  {
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => twitterDraft.id, { onDelete: 'cascade' }),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => twitterResearchItem.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.draftId, t.itemId] })],
+);
+
+// One confirmed hand-off of a draft version to Zernio. The idempotency key is
+// also sent to Zernio, so a retry after a timeout cannot publish twice.
+// `unknown` means the request went out and no answer came back.
+export const twitterPublishJob = pgTable(
+  'twitter_publish_job',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => twitterDraft.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    correlationId: uuid('correlation_id').notNull(),
+    mode: text('mode').notNull(),
+    accountId: text('account_id').notNull(),
+    accountHandle: text('account_handle'),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+    timezone: text('timezone').notNull(),
+    status: text('status').notNull().default('pending'),
+    zernioPostId: text('zernio_post_id'),
+    platformPostUrl: text('platform_post_url'),
+    response: jsonb('response').$type<Record<string, unknown>>().notNull().default({}),
+    lastError: text('last_error'),
+    retryCount: integer('retry_count').notNull().default(0),
+    confirmedBy: text('confirmed_by').references(() => user.id, { onDelete: 'set null' }),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }).notNull(),
+    obsidianPath: text('obsidian_path'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('twitter_publish_job_idempotency_unique').on(t.projectId, t.idempotencyKey),
+    index('twitter_publish_job_draft_idx').on(t.draftId),
+    check('twitter_publish_job_mode_check', sql`${t.mode} IN ('now', 'schedule')`),
+    check(
+      'twitter_publish_job_status_check',
+      sql`${t.status} IN ('pending', 'unknown', 'scheduled', 'published', 'failed')`,
+    ),
+  ],
+);
+
+// The outbox of Obsidian writes. A job is created in the same transaction as the
+// data it renders, and the worker writes the note from the current rows, so
+// running a job twice writes the same file. One row per note; requesting a note
+// again sets it back to pending.
+export const obsidianIngestJob = pgTable(
+  'obsidian_ingest_job',
+  {
+    id: serial('id').primaryKey(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    refId: text('ref_id').notNull(),
+    correlationId: uuid('correlation_id'),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    path: text('path'),
+    lastError: text('last_error'),
+    writtenAt: timestamp('written_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('obsidian_ingest_job_ref_unique').on(t.projectId, t.kind, t.refId),
+    index('obsidian_ingest_job_due_idx').on(t.status, t.nextAttemptAt),
+    check(
+      'obsidian_ingest_job_kind_check',
+      sql`${t.kind} IN ('run', 'item', 'profile', 'draft', 'published', 'dashboard')`,
+    ),
+    check('obsidian_ingest_job_status_check', sql`${t.status} IN ('pending', 'written', 'failed')`),
+  ],
+);
+
+// The audit log of the Twitter section: research, MCP calls, Obsidian writes,
+// drafts and publications, each with the correlation id of the flow it belongs to.
+export const twitterActivity = pgTable(
+  'twitter_activity',
+  {
+    id: serial('id').primaryKey(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    event: text('event').notNull(),
+    level: text('level').notNull().default('info'),
+    correlationId: uuid('correlation_id'),
+    subjectType: text('subject_type'),
+    subjectId: text('subject_id'),
+    actorUserId: text('actor_user_id').references(() => user.id, { onDelete: 'set null' }),
+    summary: text('summary').notNull(),
+    detail: jsonb('detail').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('twitter_activity_project_idx').on(t.projectId, t.createdAt.desc()),
+    check('twitter_activity_level_check', sql`${t.level} IN ('info', 'warning', 'error')`),
+  ],
+);
+
+// The project's Twitter defaults. No secrets: the X API token and the Zernio key
+// are integration credentials.
+export const twitterSettings = pgTable('twitter_settings', {
+  projectId: integer('project_id')
+    .primaryKey()
+    .references(() => project.id, { onDelete: 'cascade' }),
+  zernioAccountId: text('zernio_account_id'),
+  defaultLanguage: text('default_language').notNull().default('en'),
+  defaultTimezone: text('default_timezone').notNull().default('Europe/Amsterdam'),
+  maxResults: integer('max_results').notNull().default(25),
+  retentionDays: integer('retention_days').notNull().default(90),
+  toneOfVoice: text('tone_of_voice').notNull().default(''),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

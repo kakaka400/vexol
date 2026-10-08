@@ -15,6 +15,8 @@ export type ShellRoute = {
   // The segment after the project key: 'view', 'settings', 'issue', 'members', …
   // null on the project root.
   sub: string | null;
+  // The segment after `sub`, e.g. 'twitter' on /social/twitter.
+  child: string | null;
   activeViewId: number | null;
   section: string | null;
   aiTeamCrumb: string | null;
@@ -41,6 +43,7 @@ export function useShellRoute(): ShellRoute {
   return {
     projectKey,
     sub,
+    child: segs[3] ?? null,
     activeViewId: sub === 'view' && segs[3] ? Number(segs[3]) : null,
     section: sub === 'settings' ? (segs[3] ?? null) : null,
     aiTeamCrumb: sub === 'ai-team' ? aiTeamLabel(segs[3] ?? null) : null,

@@ -123,6 +123,8 @@ services:
       WHISPER_URL: ${WHISPER_URL:-}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
       OBSIDIAN_VAULT_DIR: /vault
+      # The vault name for obsidian:// links on the Twitter page.
+      OBSIDIAN_VAULT_NAME: ${OBSIDIAN_VAULT_NAME:-}
     volumes:
       - obsidian-vault:/vault
     extra_hosts:

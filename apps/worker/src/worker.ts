@@ -2,6 +2,7 @@ import { workerConfig } from './config';
 import { deliver } from './delivery';
 import { processNotificationDeliveries } from './notification-delivery';
 import { processCompetitorSweep } from './competitors';
+import { processTwitterSweep } from './twitter';
 import { equalJitterBackoffMs } from './backoff';
 import { deleteIssueAgentThreads } from './agent-runs';
 import { startPollLoop, type WorkerHandle } from './poll-loop';
@@ -20,6 +21,7 @@ import {
 let ticksSinceCleanup = 0;
 let ticksSinceAutoArchive = 0;
 let ticksSinceCompetitors = 0;
+let ticksSinceTwitter = 0;
 // Starts due, so an install is visible even if the instance is removed minutes later.
 let ticksSinceTelemetry = TELEMETRY_CHECK_EVERY_TICKS;
 
@@ -28,8 +30,8 @@ export function startWorker(): WorkerHandle {
 }
 
 // One poll: claim a batch of due deliveries, send them concurrently, record each
-// outcome, then run the delivery cleanup, the auto-archive sweep and the telemetry
-// check on their own tick intervals.
+// outcome, then run the delivery cleanup, the competitor and Twitter sweeps, the
+// auto-archive sweep and the telemetry check on their own tick intervals.
 async function tick(): Promise<void> {
   const cfg = workerConfig();
   const claimed = await claimDueDeliveries();
@@ -45,6 +47,10 @@ async function tick(): Promise<void> {
   if (++ticksSinceCompetitors >= cfg.competitorEveryTicks) {
     ticksSinceCompetitors = 0;
     await processCompetitorSweep();
+  }
+  if (++ticksSinceTwitter >= cfg.twitterEveryTicks) {
+    ticksSinceTwitter = 0;
+    await processTwitterSweep();
   }
   if (++ticksSinceAutoArchive >= cfg.autoArchiveEveryTicks) {
     ticksSinceAutoArchive = 0;

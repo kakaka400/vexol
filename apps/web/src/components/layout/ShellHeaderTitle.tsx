@@ -5,7 +5,7 @@ import IssueBreadcrumb from '@/components/layout/IssueBreadcrumb';
 
 // The label on the pages that are not an issue or initiative detail.
 function pageLabel(route: ShellRoute, projectName: string): string {
-  const { sub, section, aiTeamCrumb } = route;
+  const { sub, child, section, aiTeamCrumb } = route;
   if (section) return SETTINGS_SECTIONS.find((s) => s.slug === section)?.label ?? 'Settings';
   if (sub === 'members') return 'Members';
   if (sub === 'command-center') return 'Command Center';
@@ -19,7 +19,7 @@ function pageLabel(route: ShellRoute, projectName: string): string {
   if (sub === 'accounting') return 'Accounting';
   if (sub === 'leads') return 'Leads';
   if (sub === 'servers') return 'Servers';
-  if (sub === 'social') return 'Social';
+  if (sub === 'social') return child === 'twitter' ? 'Twitter' : 'Social';
   if (sub === 'braindump') return 'Braindump';
   if (sub === 'mind') return 'Mind';
   if (sub === 'competitors') return 'Competitors';

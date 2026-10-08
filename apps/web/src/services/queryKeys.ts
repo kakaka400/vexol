@@ -135,6 +135,20 @@ export const qk = {
   mindRecalls: (projectKey: string) => ['mindRecalls', projectKey] as const,
   mindStale: (projectKey: string) => ['mindStale', projectKey] as const,
   competitors: (projectKey: string) => ['competitors', projectKey] as const,
+  twitterRuns: (projectKey: string) => ['twitter', projectKey, 'runs'] as const,
+  twitterRun: (projectKey: string, runId: string) =>
+    ['twitter', projectKey, 'runs', runId] as const,
+  twitterItems: (projectKey: string, filters: unknown) =>
+    ['twitter', projectKey, 'items', filters] as const,
+  twitterTags: (projectKey: string) => ['twitter', projectKey, 'tags'] as const,
+  twitterDrafts: (projectKey: string) => ['twitter', projectKey, 'drafts'] as const,
+  twitterPreview: (projectKey: string, draftId: string, version: number) =>
+    ['twitter', projectKey, 'preview', draftId, version] as const,
+  twitterChannels: (projectKey: string) => ['twitter', projectKey, 'channels'] as const,
+  twitterActivity: (projectKey: string, filters: unknown) =>
+    ['twitter', projectKey, 'activity', filters] as const,
+  twitterSettings: (projectKey: string) => ['twitter', projectKey, 'settings'] as const,
+  twitterStatus: (projectKey: string) => ['twitter', projectKey, 'status'] as const,
   studioTemplates: (projectKey: string) => ['studioTemplates', projectKey] as const,
   studioPosts: (projectKey: string) => ['studioPosts', projectKey] as const,
   studioDrafts: (projectKey: string) => ['studioDrafts', projectKey] as const,

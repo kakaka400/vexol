@@ -18,6 +18,8 @@ import { internalNotificationRoutes } from './notifications/internal-routes';
 import { internalTelegramRoutes } from './telegram/internal-routes';
 import { internalCompetitorRoutes } from './competitors/internal-routes';
 import { mountBobMcp } from './bob-mcp/mount';
+import { internalTwitterRoutes } from './twitter/internal-routes';
+import { twitterMcpScope } from './twitter/mcp';
 
 // The assembled Elysia app, without `.listen()`. `index.ts` imports this and
 // binds the port; tests import it and pass it to Eden Treaty to drive routes in
@@ -134,6 +136,11 @@ export const app = new Elysia()
             description: 'Post templates and the posts rendered from them',
           },
           {
+            name: 'Twitter',
+            description:
+              'Public X research, its Obsidian notes, drafts and publishing through Zernio',
+          },
+          {
             name: 'Phone',
             description: "The business number's calls, voicemails and recordings",
           },
@@ -239,6 +246,7 @@ export const app = new Elysia()
   .use(internalNotificationRoutes)
   .use(internalTelegramRoutes)
   .use(internalCompetitorRoutes)
+  .use(internalTwitterRoutes)
   // Test receiver for inspecting webhook deliveries (unauthenticated, dev aid).
   .use(webhookTestRoutes)
   // Rinkel posts call events here. Unauthenticated by necessity: the secret is
@@ -252,6 +260,9 @@ export const app = new Elysia()
 // Its tools are generated from the planner routes tagged with mcpTool().
 mountMcp(app);
 mountBobMcp(app);
+// The two Twitter endpoints, each serving only its own tools (see twitter/mcp.ts).
+mountMcp(app, twitterMcpScope('twitter-research'));
+mountMcp(app, twitterMcpScope('twitter-agent'));
 
 // Hands the assembled app to the internal agent runtime, which builds an agent's
 // tools from the same mcpTool() routes and dispatches them in process. It cannot

@@ -39,6 +39,15 @@ export interface WorkerConfig {
   competitorRetainDays: number;
   // Timeout for the sweep call itself; it checks a whole batch, so it is generous.
   competitorTimeoutMs: number;
+  // How often to run queued Twitter research and write pending Obsidian notes.
+  twitterEveryTicks: number;
+  // Research runs executed per sweep, one after the other.
+  twitterRunsPerSweep: number;
+  // Obsidian notes written per sweep.
+  twitterNotesPerSweep: number;
+  // Delete Twitter activity past each project's retention once every this many sweeps.
+  twitterPruneEverySweeps: number;
+  twitterTimeoutMs: number;
 }
 
 let cached: WorkerConfig | null = null;
@@ -62,6 +71,12 @@ export function workerConfig(): WorkerConfig {
     competitorBatchSize: intEnv('COMPETITOR_BATCH_SIZE', 20),
     competitorRetainDays: intEnv('COMPETITOR_RETAIN_DAYS', 60),
     competitorTimeoutMs: intEnv('COMPETITOR_TIMEOUT_MS', 120_000),
+    // Default ~6s at the 2s poll interval.
+    twitterEveryTicks: intEnv('TWITTER_EVERY_TICKS', 3),
+    twitterRunsPerSweep: intEnv('TWITTER_RUNS_PER_SWEEP', 1),
+    twitterNotesPerSweep: intEnv('TWITTER_NOTES_PER_SWEEP', 50),
+    twitterPruneEverySweeps: intEnv('TWITTER_PRUNE_EVERY_SWEEPS', 600),
+    twitterTimeoutMs: intEnv('TWITTER_TIMEOUT_MS', 180_000),
   };
   return cached;
 }

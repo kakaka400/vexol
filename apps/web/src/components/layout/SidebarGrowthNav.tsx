@@ -1,7 +1,7 @@
 import { usePathname } from 'next/navigation';
-import { Instagram, Radar, Wand2 } from 'lucide-react';
+import { Instagram, Radar, Twitter, Wand2 } from 'lucide-react';
 import { usePermissions } from '@/hooks/usePermissions';
-import { competitorsPath, socialPath, studioPath } from '@/utils/paths';
+import { competitorsPath, isTwitterPath, socialPath, studioPath, twitterPath } from '@/utils/paths';
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -17,7 +17,9 @@ export default function SidebarGrowthNav({ projectKey }: { projectKey: string | 
   const showSocial = can('social', 'read');
   const showCompetitors = can('competitors', 'read');
   const showStudio = can('studio', 'read');
-  if (!showSocial && !showCompetitors && !showStudio) return null;
+  const showTwitter = can('twitter', 'read');
+  if (!showSocial && !showTwitter && !showCompetitors && !showStudio) return null;
+  const onTwitter = isTwitterPath(pathname);
 
   return (
     <SidebarGroup>
@@ -29,7 +31,16 @@ export default function SidebarGrowthNav({ projectKey }: { projectKey: string | 
               href={projectKey ? socialPath(projectKey) : '#'}
               icon={Instagram}
               label="Social"
-              active={pathname.includes('/social')}
+              active={pathname.includes('/social') && !onTwitter}
+              disabled={!projectKey}
+            />
+          )}
+          {showTwitter && (
+            <SidebarNavItem
+              href={projectKey ? twitterPath(projectKey) : '#'}
+              icon={Twitter}
+              label="Twitter"
+              active={onTwitter}
               disabled={!projectKey}
             />
           )}
