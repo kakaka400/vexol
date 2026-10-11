@@ -1,7 +1,15 @@
 import { usePathname } from 'next/navigation';
-import { Instagram, Radar, Twitter, Wand2 } from 'lucide-react';
+import { BookOpen, Instagram, Radar, Twitter, Wand2 } from 'lucide-react';
 import { usePermissions } from '@/hooks/usePermissions';
-import { competitorsPath, isTwitterPath, socialPath, studioPath, twitterPath } from '@/utils/paths';
+import { useSession } from '@/lib/auth-client';
+import {
+  blogPath,
+  competitorsPath,
+  isTwitterPath,
+  socialPath,
+  studioPath,
+  twitterPath,
+} from '@/utils/paths';
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -13,12 +21,14 @@ import SidebarNavItem from './SidebarNavItem';
 export default function SidebarGrowthNav({ projectKey }: { projectKey: string | null }) {
   const pathname = usePathname();
   const { can } = usePermissions();
+  const { data: session } = useSession();
+  const isGod = session?.user?.role === 'god';
 
   const showSocial = can('social', 'read');
   const showCompetitors = can('competitors', 'read');
   const showStudio = can('studio', 'read');
   const showTwitter = can('twitter', 'read');
-  if (!showSocial && !showTwitter && !showCompetitors && !showStudio) return null;
+  if (!showSocial && !showTwitter && !showCompetitors && !showStudio && !isGod) return null;
   const onTwitter = isTwitterPath(pathname);
 
   return (
@@ -41,6 +51,15 @@ export default function SidebarGrowthNav({ projectKey }: { projectKey: string | 
               icon={Twitter}
               label="Twitter"
               active={onTwitter}
+              disabled={!projectKey}
+            />
+          )}
+          {isGod && (
+            <SidebarNavItem
+              href={projectKey ? blogPath(projectKey) : '#'}
+              icon={BookOpen}
+              label="Blog"
+              active={pathname.includes('/social/blog')}
               disabled={!projectKey}
             />
           )}

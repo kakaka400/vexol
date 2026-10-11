@@ -4853,4 +4853,25 @@ export const api = {
   // The instance's own sign-in policy, readable without a session: the sign-up
   // screen needs it before an account exists.
   getAuthConfig: () => request<PublicAuthConfig>('/auth-config'),
+  listBlogDrafts: () => request<BlogPost[]>('/blog/drafts'),
+  listBlogPublished: () => request<BlogPost[]>('/blog/published'),
+  approveBlogDraft: (slug: string) =>
+    request<{ ok: boolean }>(`/blog/drafts/${encodeURIComponent(slug)}/approve`, {
+      method: 'POST',
+    }),
+  rejectBlogDraft: (slug: string) =>
+    request<{ ok: boolean }>(`/blog/drafts/${encodeURIComponent(slug)}/reject`, {
+      method: 'POST',
+    }),
 };
+
+export interface BlogPost {
+  id: string;
+  slug: string;
+  title: string;
+  category: string | null;
+  excerpt: string | null;
+  publishedAt: string | null;
+  content: string | null;
+  isDraft: boolean;
+}

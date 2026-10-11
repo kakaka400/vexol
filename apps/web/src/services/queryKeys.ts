@@ -228,4 +228,6 @@ export const qk = {
   // project with its members.
   instanceProjects: (filters: unknown) => ['instanceProjects', filters] as const,
   instanceProject: (projectId: number) => ['instanceProject', projectId] as const,
+  blogDrafts: ['blog', 'drafts'] as const,
+  blogPublished: ['blog', 'published'] as const,
 };

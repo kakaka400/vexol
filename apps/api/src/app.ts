@@ -140,6 +140,7 @@ export const app = new Elysia()
             description:
               'Public X research, its Obsidian notes, drafts and publishing through Zernio',
           },
+          { name: 'Blog', description: 'Blog post approval' },
           {
             name: 'Phone',
             description: "The business number's calls, voicemails and recordings",

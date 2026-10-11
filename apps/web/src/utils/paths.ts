@@ -33,6 +33,7 @@ export const serverConsolePath = (key: string, serverId: number) =>
   `${serversPath(key)}/${serverId}`;
 export const socialPath = (key: string) => `${projectPath(key)}/social`;
 export const twitterPath = (key: string) => `${socialPath(key)}/twitter`;
+export const blogPath = (key: string) => `${socialPath(key)}/blog`;
 export const isTwitterPath = (pathname: string) =>
   /^\/project\/[^/]+\/social\/twitter(?:\/|$)/.test(pathname);
 export const competitorsPath = (key: string) => `${projectPath(key)}/competitors`;
