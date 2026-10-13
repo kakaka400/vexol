@@ -2372,7 +2372,7 @@ export const twitterActivity = pgTable(
   ],
 );
 
-// The project's Twitter defaults. No secrets: the X API token and the Buffer key
+// The project's Twitter defaults. No secrets: the Apify token and the Buffer key
 // are integration credentials.
 export const twitterSettings = pgTable('twitter_settings', {
   projectId: integer('project_id')

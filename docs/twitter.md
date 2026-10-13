@@ -7,18 +7,27 @@ confirms before Buffer publishes them.
 ## Research
 
 A research run takes a question, handles, profile or post URLs, search terms, hashtags,
-a period, a language, a result limit, tags and project context. It reads only public
-data, through two official sources:
+a period, a language, a result limit, replies, tags and project context. It reads only
+public data, through three Apify Actors (the **Apify X Scraper**):
 
-- **X API v2** with the project's own bearer token (Settings → Integrations → X API):
-  recent search, profiles and their recent posts, single posts, with metrics.
-- **X oEmbed** (`publish.twitter.com/oembed`), without a key: the text, author and date of
-  a single post URL. No metrics.
+| Input                          | Actor                                 |
+| ------------------------------ | ------------------------------------- |
+| question, search terms, hashtags | `scraper_one/x-posts-search`        |
+| handles, profile URLs          | `scraper_one/x-profile-posts-scraper` |
+| post URLs (and their replies)  | `scraper_one/x-post-replies-scraper`  |
 
-Nothing logs in, sends cookies, renders a page in a browser or uses a proxy. A 401, 403
-or 429 stops the run (status `stopped`); it is not retried and not routed around. A run
-that only timed out is queued again, up to three times, with backoff. The worker
-executes queued runs (`/internal/twitter/sweep`).
+The API starts the Actor, waits until it finishes (`APIFY_RUN_TIMEOUT_MS`, then the run
+is aborted), reads its default dataset, and normalizes and deduplicates the posts. Every
+Actor run is capped to the results the research run still needs (`maxItems`). The run ID,
+dataset ID, status and error of each Actor run are written to Activity
+(`twitter.apify.run`).
+
+The token is the project's **Apify X Scraper** credential (Settings → Integrations), or
+`APIFY_TOKEN` on the API for projects without one. It is read only by the API and never
+sent to the browser. Without a token research does not run; there is no other source.
+A 401, 402, 403 or 429 from Apify stops the run (status `stopped`); it is not retried
+and not routed around. A run that only timed out is queued again, up to three times,
+with backoff. The worker executes queued runs (`/internal/twitter/sweep`).
 
 Posts are deduplicated per project by post id, then canonical URL, then a content hash
 of author and text. A newer reading only updates metrics and fills empty fields.
@@ -73,9 +82,10 @@ Every call is written to the project's Twitter activity log.
 1. Set `OBSIDIAN_VAULT_DIR` on the API (and `OBSIDIAN_VAULT_NAME` when the vault is
    named differently from that folder, for `obsidian://` links).
 2. In the project, add a **Buffer** credential (API key from Buffer → Settings → API) under
-   Settings → Integrations, and connect the X account as a channel in Buffer. An **X API**
-   credential (bearer token) is optional: without it, research reads post URLs through
-   X oEmbed, and a research agent stores what it finds with `ingest_research_results`.
+   Settings → Integrations, and connect the X account as a channel in Buffer. Add an
+   **Apify X Scraper** credential (API token), or set `APIFY_TOKEN` on the API; research
+   needs one of them. A research agent can also store posts it found itself with
+   `ingest_research_results`.
 3. Give members roles with `twitter` (research, library, drafts) and, for those who may
    publish, `twitter_publish.create`.
 4. For agents: create an external agent per endpoint (for example a research agent with

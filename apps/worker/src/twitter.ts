@@ -11,7 +11,7 @@ interface SweepResult {
 let sweepsSincePrune = 0;
 
 // Asks the API to execute queued Twitter research and write the pending Obsidian
-// notes. Research needs the project's X API token, which only the API can decrypt,
+// notes. Research needs the project's Apify token, which only the API can decrypt,
 // so the worker owns the schedule and the API owns the work.
 export async function processTwitterSweep(): Promise<void> {
   const cfg = workerConfig();

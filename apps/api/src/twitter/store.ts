@@ -23,7 +23,7 @@ export type RunStatus = 'queued' | 'running' | 'completed' | 'partial' | 'stoppe
 export type NoteKind = 'run' | 'item' | 'profile' | 'draft' | 'published' | 'dashboard';
 
 const MAX_RUN_RETRIES = 3;
-const RUN_LEASE_MS = 5 * 60_000;
+const RUN_LEASE_MS = 15 * 60_000;
 
 // ---------------------------------------------------------------- activity
 
@@ -658,6 +658,7 @@ export async function saveRunResults(run: ClaimedRun, result: CollectResult): Pr
       lastError = `Every request failed after ${MAX_RUN_RETRIES} retries`;
     } else if (
       result.transientFailures > 0 ||
+      result.apifyRuns.some((apify) => apify.error) ||
       result.warnings.some((w) => /returned \d{3}|no answer/.test(w))
     ) {
       status = 'partial';
@@ -682,6 +683,22 @@ export async function saveRunResults(run: ClaimedRun, result: CollectResult): Pr
       .where(eq(twitterResearchRun.id, run.id));
     await requestNote(tx, run.projectId, 'run', run.id, run.correlationId);
     await requestNote(tx, run.projectId, 'dashboard', 'dashboard', run.correlationId);
+
+    for (const apify of result.apifyRuns) {
+      await recordActivity(
+        {
+          projectId: run.projectId,
+          event: 'twitter.apify.run',
+          level: apify.error ? 'error' : 'info',
+          summary: `Apify ${apify.actor} · run ${apify.runId ?? '—'} · dataset ${apify.datasetId ?? '—'} · ${apify.status} · ${apify.items} results${apify.error ? ` · ${apify.error}` : ''}`,
+          correlationId: run.correlationId,
+          subjectType: 'research_run',
+          subjectId: run.id,
+          detail: { ...apify },
+        },
+        tx,
+      );
+    }
 
     const event =
       status === 'stopped'

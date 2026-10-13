@@ -12,7 +12,7 @@ import { AI_PROVIDERS } from './llm-providers';
 //              package.
 //   - "service" — data sources a project feature reads with the project's own key
 //              (Zernio backs Social and Studio publishing, Buffer the Twitter publishing,
-//              X API the Twitter research, Rinkel the Phone page). Not agent tools,
+//              Apify X Scraper the Twitter research, Rinkel the Phone page). Not agent tools,
 //              so they expose none.
 // The credential form and, for tool integrations, the tool picker are built from a
 // descriptor on the frontend.
@@ -93,16 +93,16 @@ const SERVICE_INTEGRATIONS: UnifiedIntegration[] = [
     tools: [],
   },
   {
-    key: 'x_api',
-    label: 'X API',
+    key: 'apify',
+    label: 'Apify X Scraper',
     kind: 'service',
     credentialSchema: [
       {
-        key: 'bearerToken',
-        label: 'Bearer token',
+        key: 'apiToken',
+        label: 'API token',
         type: 'secret',
         required: true,
-        help: 'Read-only app token from the X developer portal. Powers search and timelines on the Twitter page.',
+        help: 'From console.apify.com → Settings → API & Integrations. Runs the scraper_one X Actors for research on the Twitter page; each run is billed to this Apify account. Without it the server APIFY_TOKEN is used.',
       },
     ],
     tools: [],

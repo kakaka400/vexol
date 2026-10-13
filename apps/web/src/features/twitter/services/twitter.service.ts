@@ -231,7 +231,7 @@ export function useUpdateTwitterSettings(projectKey: string) {
 
 export function useTestTwitterConnection(projectKey: string) {
   return useMutation({
-    mutationFn: (target: 'obsidian' | 'buffer' | 'x_api') =>
+    mutationFn: (target: 'obsidian' | 'buffer' | 'apify') =>
       api.testTwitterConnection(projectKey, target),
     onSuccess: (result) =>
       result.ok ? toast.success(result.message) : toast.error(result.message),

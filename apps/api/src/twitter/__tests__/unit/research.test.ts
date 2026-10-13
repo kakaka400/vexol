@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { normalizeOembed, normalizeXApiTweets, normalizeXApiUser } from '../../adapters';
+import { normalizeApifyAuthor, normalizeApifyPost, searchQuery } from '../../adapters';
 import { contentHash, item, mergeUpdate } from '../../normalize';
 import { canonicalPostUrl, normalizeHandle, parseXUrl } from '../../urls';
 
@@ -42,107 +42,108 @@ describe('X URLs and handles', () => {
 });
 
 describe('adapter normalization', () => {
-  const xApiPayload = {
-    data: [
-      {
-        id: '111',
-        text: 'Short version…',
-        note_tweet: { text: 'The full long text of the post' },
-        created_at: '2026-10-06T09:30:00.000Z',
-        lang: 'en',
-        author_id: 'u1',
-        public_metrics: { like_count: 12, retweet_count: 3, reply_count: 1, quote_count: 0 },
-        entities: {
-          urls: [{ expanded_url: 'https://example.com/a' }, { expanded_url: 'javascript:x' }],
-        },
-        attachments: { media_keys: ['m1'] },
-      },
-      { id: '222', text: 'No author in includes', author_id: 'missing' },
+  const searchItem = {
+    postText: 'AI agents cut support time by 40% #ai',
+    postUrl: 'https://x.com/VexolEU/status/111',
+    timestamp: Date.parse('2026-10-06T09:30:00.000Z'),
+    postId: '111',
+    media: [
+      { mediaUrlHttps: 'https://pbs.twimg.com/media/a.jpg', type: 'photo', id: 'm1' },
+      { mediaUrlHttps: 'javascript:x', type: 'video', id: 'm2' },
     ],
-    includes: {
-      users: [{ id: 'u1', username: 'VexolEU', name: 'Vexol' }],
-      media: [
-        {
-          media_key: 'm1',
-          type: 'photo',
-          url: 'https://pbs.twimg.com/media/a.jpg',
-          alt_text: 'A chart',
-        },
-      ],
+    author: {
+      name: 'Vexol',
+      screenName: 'VexolEU',
+      followersCount: 42,
+      description: 'Bio',
     },
+    replyCount: 1,
+    quoteCount: 0,
+    repostCount: 3,
+    favouriteCount: 12,
+    viewCount: 900,
   };
 
-  it('reads the X API v2 shape with metrics, media, links and the long text', () => {
-    const [entry, ...rest] = normalizeXApiTweets(xApiPayload, fetchedAt);
-    expect(rest).toHaveLength(0);
+  it('reads an Apify post with metrics and media', () => {
+    const entry = normalizeApifyPost(searchItem, fetchedAt);
     expect(entry).toMatchObject({
       postId: '111',
       canonicalUrl: 'https://x.com/vexoleu/status/111',
       authorHandle: 'vexoleu',
       authorName: 'Vexol',
       profileUrl: 'https://x.com/vexoleu',
-      text: 'The full long text of the post',
-      language: 'en',
-      metrics: { like_count: 12, retweet_count: 3, reply_count: 1, quote_count: 0 },
-      media: [{ type: 'photo', url: 'https://pbs.twimg.com/media/a.jpg', altText: 'A chart' }],
-      links: ['https://example.com/a'],
-      adapter: 'x_api',
+      text: 'AI agents cut support time by 40% #ai',
+      language: null,
+      metrics: {
+        like_count: 12,
+        retweet_count: 3,
+        reply_count: 1,
+        quote_count: 0,
+        impression_count: 900,
+      },
+      media: [
+        { type: 'photo', url: 'https://pbs.twimg.com/media/a.jpg', altText: null },
+        { type: 'video', url: null, altText: null },
+      ],
+      adapter: 'apify',
       sourceStatus: 'ok',
       verificationStatus: 'unverified',
     });
     expect(entry!.publishedAt?.toISOString()).toBe('2026-10-06T09:30:00.000Z');
   });
 
-  it('reads an oEmbed answer into the same shape, without metrics', () => {
-    const entry = normalizeOembed(
+  it('reads a reply by its own id and URL', () => {
+    const entry = normalizeApifyPost(
       {
-        author_name: 'Vexol',
-        author_url: 'https://twitter.com/VexolEU',
-        html: '<blockquote class="twitter-tweet"><p lang="nl" dir="ltr">Nieuwe &amp; betere <a href="https://t.co/x">release</a><br>regel twee</p>&mdash; Vexol (@VexolEU) <a href="https://twitter.com/VexolEU/status/333?ref_src=twsrc%5Etfw">October 1, 2026</a></blockquote>',
+        replyId: '555',
+        replyUrl: 'https://x.com/someone/status/555',
+        replyText: '@VexolEU agreed',
+        postId: '111',
+        postUrl: 'https://x.com/VexolEU/status/111',
+        author: { name: 'Someone', screenName: 'someone' },
+        viewsCount: 15,
       },
-      { handle: 'vexoleu', postId: '333' },
       fetchedAt,
     );
     expect(entry).toMatchObject({
-      postId: '333',
-      canonicalUrl: 'https://x.com/vexoleu/status/333',
-      authorHandle: 'vexoleu',
-      authorName: 'Vexol',
-      text: 'Nieuwe & betere release\nregel twee',
-      language: 'nl',
-      metrics: null,
-      adapter: 'oembed',
-      sourceStatus: 'partial',
+      postId: '555',
+      canonicalUrl: 'https://x.com/someone/status/555',
+      text: '@VexolEU agreed',
+      metrics: { impression_count: 15 },
     });
-    expect(entry!.publishedAt?.toISOString().slice(0, 10)).toBe('2026-10-01');
   });
 
-  it('returns nothing for an oEmbed answer without a post', () => {
-    expect(
-      normalizeOembed({ html: '<div></div>' }, { handle: 'a', postId: '1' }, fetchedAt),
-    ).toBeNull();
+  it('skips an item without a post id or text', () => {
+    expect(normalizeApifyPost({ postUrl: 'https://x.com/a' }, fetchedAt)).toBeNull();
+    expect(normalizeApifyPost({ postId: '1', author: { screenName: 'a' } }, fetchedAt)).toBeNull();
   });
 
-  it('reads an X API user', () => {
-    expect(
-      normalizeXApiUser(
-        {
-          data: {
-            id: '9',
-            username: 'VexolEU',
-            name: 'Vexol',
-            description: 'Bio',
-            public_metrics: { followers_count: 42 },
-          },
-        },
-        fetchedAt,
-      ),
-    ).toMatchObject({
+  it('reads the author as a profile', () => {
+    expect(normalizeApifyAuthor(searchItem, fetchedAt)).toMatchObject({
       handle: 'vexoleu',
       name: 'Vexol',
+      description: 'Bio',
       followers: 42,
       profileUrl: 'https://x.com/vexoleu',
     });
+  });
+
+  it('builds the X search query with period and language', () => {
+    expect(
+      searchQuery({
+        handles: ['vexoleu'],
+        urls: [],
+        terms: ['ai agents'],
+        hashtags: ['ai'],
+        since: '2026-10-01',
+        until: '2026-10-05',
+        language: 'en',
+        maxResults: 3,
+        tags: [],
+      }),
+    ).toBe(
+      '("ai agents" OR #ai) (from:vexoleu) lang:en since:2026-10-01 until:2026-10-06 -filter:retweets',
+    );
   });
 });
 

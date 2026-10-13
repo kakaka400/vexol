@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia';
 import { sweepTwitter } from './research';
 
 // The worker calls this on its own schedule to run queued research and write the
-// pending Obsidian notes. Research needs the project's decrypted X API token, so
+// pending Obsidian notes. Research needs the project's decrypted Apify token, so
 // the work runs in the API (the same split as /internal/competitors/sweep).
 export const internalTwitterRoutes = new Elysia({ name: 'internal-twitter' }).post(
   '/internal/twitter/sweep',

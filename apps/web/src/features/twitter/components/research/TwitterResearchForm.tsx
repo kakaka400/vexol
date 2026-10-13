@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -15,7 +16,11 @@ import {
   type ResearchFormValues,
 } from '../../utils/twitter';
 
-const FIELDS: Array<{ key: keyof ResearchFormValues; label: string; placeholder: string }> = [
+const FIELDS: Array<{
+  key: Exclude<keyof ResearchFormValues, 'replies'>;
+  label: string;
+  placeholder: string;
+}> = [
   { key: 'handles', label: 'X handles', placeholder: '@vexoleu, @another' },
   { key: 'profileUrl', label: 'Profile URL', placeholder: 'https://x.com/vexoleu' },
   { key: 'postUrls', label: 'Post URLs', placeholder: 'https://x.com/vexoleu/status/…' },
@@ -29,7 +34,7 @@ export default function TwitterResearchForm({ onStarted }: { onStarted: (runId: 
   const settings = useTwitterSettingsQuery(projectKey).data;
   const start = useStartTwitterResearch(projectKey);
   const [values, setValues] = useState<ResearchFormValues>(EMPTY_RESEARCH_FORM);
-  const set = (key: keyof ResearchFormValues) => (value: string) =>
+  const set = (key: Exclude<keyof ResearchFormValues, 'replies'>) => (value: string) =>
     setValues((current) => ({ ...current, [key]: value }));
 
   const submit = (event: React.FormEvent) => {
@@ -106,6 +111,18 @@ export default function TwitterResearchForm({ onStarted }: { onStarted: (runId: 
           />
         </div>
       </div>
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="twitter-replies"
+          checked={values.replies}
+          onCheckedChange={(checked) =>
+            setValues((current) => ({ ...current, replies: checked === true }))
+          }
+        />
+        <Label htmlFor="twitter-replies" className="font-normal">
+          Also collect the replies of the post URLs
+        </Label>
+      </div>
       <div className="space-y-1.5">
         <Label htmlFor="twitter-context">Project context</Label>
         <Textarea
@@ -122,8 +139,9 @@ export default function TwitterResearchForm({ onStarted }: { onStarted: (runId: 
         {start.isPending ? 'Starting…' : 'Start research'}
       </Button>
       <p className="text-xs text-muted-foreground">
-        Only public posts are read, through the X API or X oEmbed. A refusal or rate limit stops the
-        run; nothing is published.
+        Only public posts are read, through the Apify X Scraper. Each run is billed to the Apify
+        account and capped at the max results. A refusal or rate limit stops the run; nothing is
+        published.
       </p>
     </form>
   );

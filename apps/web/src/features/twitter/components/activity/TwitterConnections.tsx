@@ -6,7 +6,7 @@ import { useTwitter } from '../../context/TwitterContext';
 import { useRetryTwitterNotes, useTestTwitterConnection } from '../../services/twitter.service';
 import TwitterBadge from '../TwitterBadge';
 
-type Target = 'obsidian' | 'buffer' | 'x_api';
+type Target = 'obsidian' | 'buffer' | 'apify';
 
 // The state of every connection the section depends on. Secret values never
 // reach the browser; only whether each one is configured.
@@ -42,12 +42,12 @@ export default function TwitterConnections({ status }: { status: TwitterStatus }
       target: 'buffer',
     },
     {
-      name: 'X API (research)',
-      ok: status.xApi.configured,
-      detail: status.xApi.configured
-        ? 'Bearer token configured'
-        : 'Without a token only post URLs can be read (X oEmbed)',
-      target: 'x_api',
+      name: 'Apify X Scraper (research)',
+      ok: status.apify.configured,
+      detail: status.apify.configured
+        ? `API token configured on the server · ${status.apify.actors.join(', ')}`
+        : 'Research cannot run: add an Apify API token under Settings → Integrations → Apify X Scraper',
+      target: 'apify',
     },
     {
       name: 'OpenRouter (variations)',

@@ -2864,6 +2864,7 @@ export interface TwitterResearchInput {
   until?: string;
   language?: string;
   maxResults?: number;
+  replies?: boolean;
   tags?: string[];
   context?: string;
 }
@@ -3078,7 +3079,7 @@ export interface TwitterStatus {
     notes: { pending: number; written: number; failed: number };
   };
   buffer: { configured: boolean };
-  xApi: { configured: boolean };
+  apify: { configured: boolean; actors: string[] };
   openRouter: { configured: boolean };
   capabilities: { research: string[]; publishing: Record<string, boolean | number> };
 }
@@ -3973,7 +3974,7 @@ export const api = {
     }),
   getTwitterStatus: (projectKey: string) =>
     request<TwitterStatus>(`${twitterBase(projectKey)}/status`),
-  testTwitterConnection: (projectKey: string, target: 'obsidian' | 'buffer' | 'x_api') =>
+  testTwitterConnection: (projectKey: string, target: 'obsidian' | 'buffer' | 'apify') =>
     request<{ ok: boolean; message: string }>(`${twitterBase(projectKey)}/status/test`, {
       method: 'POST',
       body: JSON.stringify({ target }),

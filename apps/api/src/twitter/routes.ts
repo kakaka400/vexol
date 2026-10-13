@@ -8,7 +8,7 @@ import { authContext } from '../shared/auth-context';
 import { guards } from '../shared/guards';
 import { HttpError } from '../shared/lib';
 import { ErrorResponse } from '../shared/responses';
-import { xApiToken, type ResearchInput } from './adapters';
+import { ACTORS, apifyRequest, apifyToken, type ResearchInput } from './adapters';
 import {
   checkPosts,
   MAX_POST_LENGTH,
@@ -66,7 +66,7 @@ import {
 const RESEARCH = 'twitter-research' as const;
 const AGENT = 'twitter-agent' as const;
 
-// Research reaches X, so a project's members share a modest budget of runs.
+// Research starts paid Apify runs, so a project's members share a modest budget of runs.
 const researchLimiter = new ServiceRateLimiter({ capacity: 20, refillPerMinute: 10 });
 
 const projectParams = t.Object({ projectKey: t.String() });
@@ -107,6 +107,9 @@ const ResearchFields = {
     t.String({ pattern: '^[a-z]{2,3}$', description: 'ISO 639-1 code, e.g. en' }),
   ),
   maxResults: t.Optional(t.Integer({ minimum: 1, maximum: 100 })),
+  replies: t.Optional(
+    t.Boolean({ description: 'Also collect the replies of the given post URLs' }),
+  ),
   tags: t.Optional(t.Array(t.String({ minLength: 1, maxLength: 50 }), { maxItems: 20 })),
   context: t.Optional(
     t.String({ maxLength: 1000, description: 'Project context for the research' }),
@@ -324,7 +327,7 @@ const ConnectionStatus = t.Object({
     notes: t.Object({ pending: t.Number(), written: t.Number(), failed: t.Number() }),
   }),
   buffer: t.Object({ configured: t.Boolean() }),
-  xApi: t.Object({ configured: t.Boolean() }),
+  apify: t.Object({ configured: t.Boolean(), actors: t.Array(t.String()) }),
   openRouter: t.Object({ configured: t.Boolean() }),
   capabilities: t.Object({
     research: t.Array(t.String()),
@@ -398,6 +401,7 @@ function researchInput(
     ...(until ? { until } : {}),
     ...(body.language ? { language: body.language as string } : {}),
     maxResults: (body.maxResults as number | undefined) ?? defaults.maxResults,
+    ...(body.replies === true ? { replies: true } : {}),
     tags,
     ...(typeof body.context === 'string' && body.context.trim()
       ? { context: body.context.trim() }
@@ -659,7 +663,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
       detail: {
         summary: 'Start a research run in the background',
         description:
-          'Queue a research run on public X data: a question, handles, profile or post URLs, search terms, hashtags, period and language. Returns the run at once; poll get_research_run for its status and results. Every result is stored in the library and written to Obsidian.',
+          'Queue a research run on public X data through the Apify X Scraper: a question, handles, profile or post URLs, search terms, hashtags, period, language and optionally replies. Returns the run at once; poll get_research_run for its status and results. Every result is stored in the library and written to Obsidian.',
         ...mcpTool('run_twitter_research', undefined, RESEARCH),
       },
     },
@@ -692,7 +696,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
       detail: {
         summary: 'Search public posts on X now',
         description:
-          'Search public X posts by question, terms, hashtags and optionally handles, and wait for the results. Needs the project X API token. Results are stored and written to Obsidian.',
+          'Search public X posts by question, terms, hashtags and optionally handles through the Apify X Scraper (scraper_one/x-posts-search), and wait for the results. Results are stored and written to Obsidian.',
         ...mcpTool('search_twitter', undefined, RESEARCH),
       },
     },
@@ -709,7 +713,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
       detail: {
         summary: 'Read a public X profile and its recent posts now',
         description:
-          'Read public X profiles (handles or profile URLs) and their recent posts, and wait for the results. Needs the project X API token.',
+          'Read the recent posts of public X profiles (handles or profile URLs) through the Apify X Scraper (scraper_one/x-profile-posts-scraper), and wait for the results.',
         ...mcpTool('fetch_twitter_profile', undefined, RESEARCH),
       },
     },
@@ -726,7 +730,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
       detail: {
         summary: 'Read public X posts by URL now',
         description:
-          'Read public X posts by their URLs (urls), and wait for the results. Works without an X API token through X oEmbed (text, author, date; no metrics).',
+          'Read public X posts by their URLs (urls) through the Apify X Scraper (scraper_one/x-post-replies-scraper), and wait for the results. Set replies to also collect their replies.',
         ...mcpTool('fetch_twitter_post', undefined, RESEARCH),
       },
     },
@@ -807,6 +811,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
             stop: null,
             transientFailures: 0,
             requests: items.length,
+            apifyRuns: [],
           },
         );
       }
@@ -1341,6 +1346,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
   .get(
     '/projects/:projectKey/twitter/status',
     async ({ project }) => {
+      const apify = (await apifyToken(project.id)) != null;
       let buffer = false;
       try {
         await resolveBufferKey(project.id);
@@ -1358,12 +1364,12 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
           notes: await noteStatusCounts(project.id),
         },
         buffer: { configured: buffer },
-        xApi: { configured: (await xApiToken(project.id)) != null },
+        apify: { configured: apify, actors: Object.values(ACTORS) },
         openRouter: { configured: (await findCredentialConfig(project.id, 'openrouter')) != null },
         capabilities: {
-          research: (await xApiToken(project.id))
-            ? ['search', 'profiles', 'posts', 'metrics', 'ingest']
-            : ['posts (oEmbed, no metrics)', 'ingest'],
+          research: apify
+            ? ['search', 'profiles', 'posts', 'replies', 'metrics', 'ingest']
+            : ['ingest'],
           publishing: BUFFER_X_CAPABILITIES,
         },
       };
@@ -1389,17 +1395,24 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
           const channels = await listTwitterChannels(await resolveBufferKey(project.id));
           message = `Buffer answered: ${channels.length} X channel(s) connected`;
         } else {
-          const token = await xApiToken(project.id);
-          if (!token) throw new HttpError(503, 'No X API token in Settings → Integrations');
-          const response = await fetch(
-            `${process.env.X_API_BASE_URL || 'https://api.x.com/2'}/users/by/username/X`,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-              signal: AbortSignal.timeout(10_000),
-            },
-          );
-          if (!response.ok) throw new HttpError(502, `X API answered ${response.status}`);
-          message = 'X API accepted the token';
+          // Reads the account of the token; this starts no Actor and costs nothing.
+          const token = await apifyToken(project.id);
+          if (!token)
+            throw new HttpError(
+              503,
+              'No Apify API token in Settings → Integrations → Apify X Scraper',
+            );
+          let account: unknown;
+          try {
+            account = await apifyRequest(token, '/users/me');
+          } catch (error) {
+            throw new HttpError(
+              502,
+              error instanceof Error ? error.message : 'Apify did not answer',
+            );
+          }
+          const username = (account as { data?: { username?: unknown } } | null)?.data?.username;
+          message = `Apify X Scraper accepted the token${typeof username === 'string' ? ` (account ${username})` : ''}`;
         }
         ok = true;
       } catch (error) {
@@ -1420,7 +1433,7 @@ export const twitterRoutes = new Elysia({ name: 'twitter', detail: { tags: ['Twi
     {
       params: projectParams,
       body: t.Object({
-        target: t.Union([t.Literal('obsidian'), t.Literal('buffer'), t.Literal('x_api')]),
+        target: t.Union([t.Literal('obsidian'), t.Literal('buffer'), t.Literal('apify')]),
       }),
       permission: ['twitter', 'edit'],
       response: { 200: t.Object({ ok: t.Boolean(), message: t.String() }), ...errors },

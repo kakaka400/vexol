@@ -22,6 +22,7 @@ export interface ResearchFormValues {
   until: string;
   language: string;
   maxResults: string;
+  replies: boolean;
   tags: string;
   context: string;
 }
@@ -37,6 +38,7 @@ export const EMPTY_RESEARCH_FORM: ResearchFormValues = {
   until: '',
   language: '',
   maxResults: '',
+  replies: false,
   tags: '',
   context: '',
 };
@@ -54,12 +56,13 @@ export function researchRequest(values: ResearchFormValues): TwitterResearchInpu
     ...(values.until ? { until: values.until } : {}),
     ...(values.language.trim() ? { language: values.language.trim().toLowerCase() } : {}),
     ...(Number.isInteger(max) && max > 0 ? { maxResults: max } : {}),
+    ...(values.replies ? { replies: true } : {}),
     tags: splitList(values.tags),
     ...(values.context.trim() ? { context: values.context.trim() } : {}),
   };
 }
 
-// Post URLs only go to the direct post lookup, which works without an X API token.
+// Post URLs only go to the direct post lookup, which waits for its results.
 export function researchMode(request: TwitterResearchInput): 'runs' | 'post' {
   const onlyPosts =
     !request.question &&

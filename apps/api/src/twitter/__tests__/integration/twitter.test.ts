@@ -8,17 +8,23 @@ import { api as anonymous, apiKeyApi, authedApi, type Api } from '../../../__tes
 import { signUpTestUser } from '../../../__tests__/helpers/auth';
 import { resetDb } from '../../../__tests__/helpers/db';
 
-// X, oEmbed and Buffer are the only things reached over the network. Each is
-// faked here: calls are recorded, and a test can make the next one fail. No test
-// reaches the real services, so no post is ever published.
+// Apify and Buffer are the only things reached over the network. Each is faked
+// here: calls are recorded, and a test can make the next one fail. No test
+// reaches the real services, so no Apify run is started and no post is published.
 
 const WORKER_TOKEN = 'worker-token-for-twitter-tests';
 const realFetch = globalThis.fetch;
 
-type Fake = { status?: number; throws?: boolean; body?: unknown };
-let xCalls: { path: string; query: URLSearchParams; authorization: string | null }[] = [];
-let xNext: Record<string, Fake> = {};
-let oembedCalls = 0;
+type Fake = { status?: number; throws?: boolean; body?: unknown; runStatus?: string };
+type ApifyCall = {
+  actor: string;
+  input: Record<string, unknown>;
+  maxItems: string | null;
+  authorization: string | null;
+};
+let apifyCalls: ApifyCall[] = [];
+let apifyNext: Record<string, Fake> = {};
+let apifyRuns = new Map<string, { status: string; items: unknown[] }>();
 let bufferCalls: { query: string; variables: Record<string, unknown>; key: string | null }[] = [];
 let bufferCreateQueue: Fake[] = [];
 let bufferChannels: unknown[] = [];
@@ -26,72 +32,89 @@ let bufferPosts: unknown[] = [];
 let bufferStatus = 'sent';
 const creates = () => bufferCalls.filter((call) => call.query.includes('createPost'));
 
-const tweets = (ids: string[], handle = 'VexolEU') => ({
-  data: ids.map((id) => ({
-    id,
-    text: `Post ${id}: AI agents cut support time by 40% #ai`,
-    created_at: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
-    lang: 'en',
-    author_id: 'u1',
-    public_metrics: { like_count: 10, retweet_count: 2, reply_count: 1, quote_count: 0 },
-  })),
-  includes: { users: [{ id: 'u1', username: handle, name: 'Vexol' }] },
+const post = (id: string, handle = 'VexolEU') => ({
+  postText: `Post ${id}: AI agents cut support time by 40% #ai`,
+  postUrl: `https://x.com/${handle}/status/${id}`,
+  postId: id,
+  timestamp: Date.now() - 2 * 60 * 60_000,
+  media: [],
+  author: { name: 'Vexol', screenName: handle, followersCount: 50, description: 'Bio' },
+  replyCount: 1,
+  quoteCount: 0,
+  repostCount: 2,
+  favouriteCount: 10,
 });
+
+// What each Actor returns by default, from its input.
+function actorItems(actor: string, input: Record<string, unknown>): unknown[] {
+  if (actor === 'x-posts-search') return [post('101'), post('102')];
+  if (actor === 'x-profile-posts-scraper') return [post('201')];
+  const urls = (input.postUrls as string[]) ?? [];
+  return urls.flatMap((url) => {
+    const [, handle, , id] = new URL(url).pathname.split('/');
+    if (id === '404') return [];
+    const original = post(id!, handle);
+    const reply = {
+      replyId: `9${id}`,
+      replyUrl: `https://x.com/fan/status/9${id}`,
+      replyText: `@${handle} agreed`,
+      postId: id,
+      postUrl: url,
+      author: { name: 'Fan', screenName: 'fan' },
+    };
+    return Number(input.resultsLimit) > 1 ? [original, reply] : [original];
+  });
+}
+
+function fakeApify(url: URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  const route = url.pathname.replace(/^\/v2/, '');
+  if (route === '/users/me')
+    return Promise.resolve(Response.json({ data: { username: 'tester' } }));
+  const start = route.match(/^\/acts\/scraper_one~([a-z-]+)\/runs$/);
+  if (start) {
+    const actor = start[1]!;
+    const input = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    apifyCalls.push({
+      actor,
+      input,
+      maxItems: url.searchParams.get('maxItems'),
+      authorization: headers.get('authorization'),
+    });
+    const next = apifyNext[actor];
+    if (next?.throws) return Promise.reject(new Error('timeout'));
+    if (next?.status)
+      return Promise.resolve(Response.json({ error: { type: 'x' } }, { status: next.status }));
+    const id = `run${apifyCalls.length}`;
+    apifyRuns.set(id, {
+      status: next?.runStatus ?? 'SUCCEEDED',
+      items: (next?.body as unknown[] | undefined) ?? actorItems(actor, input),
+    });
+    return Promise.resolve(
+      Response.json(
+        { data: { id, defaultDatasetId: `ds-${id}`, status: 'READY' } },
+        { status: 201 },
+      ),
+    );
+  }
+  const run = route.match(/^\/actor-runs\/([a-z0-9]+)$/);
+  if (run) {
+    const found = apifyRuns.get(run[1]!);
+    return Promise.resolve(
+      Response.json({
+        data: { id: run[1], status: found?.status ?? 'FAILED', defaultDatasetId: `ds-${run[1]}` },
+      }),
+    );
+  }
+  const dataset = route.match(/^\/datasets\/ds-([a-z0-9]+)\/items$/);
+  if (dataset) return Promise.resolve(Response.json(apifyRuns.get(dataset[1]!)?.items ?? []));
+  return Promise.resolve(Response.json({}, { status: 404 }));
+}
 
 function fake(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   const url = new URL(input instanceof Request ? input.url : String(input));
   const headers = new Headers(init?.headers);
-  if (url.host === 'api.x.com') {
-    const route = url.pathname.replace(/^\/2/, '');
-    xCalls.push({
-      path: route,
-      query: url.searchParams,
-      authorization: headers.get('authorization'),
-    });
-    const key = Object.keys(xNext).find((prefix) => route.startsWith(prefix));
-    const next = key ? xNext[key]! : null;
-    if (next?.throws) return Promise.reject(new Error('timeout'));
-    if (next?.status)
-      return Promise.resolve(Response.json({ title: 'Error' }, { status: next.status }));
-    if (next?.body) return Promise.resolve(Response.json(next.body));
-    if (route.startsWith('/tweets/search/recent'))
-      return Promise.resolve(Response.json(tweets(['101', '102'])));
-    if (route.startsWith('/users/by/username/')) {
-      return Promise.resolve(
-        Response.json({
-          data: {
-            id: 'u1',
-            username: 'VexolEU',
-            name: 'Vexol',
-            description: 'Bio',
-            public_metrics: { followers_count: 50 },
-          },
-        }),
-      );
-    }
-    if (route.startsWith('/users/u1/tweets'))
-      return Promise.resolve(Response.json(tweets(['201'])));
-    if (route.startsWith('/tweets/'))
-      return Promise.resolve(
-        Response.json({
-          ...tweets([route.split('/')[2]!]),
-          data: tweets([route.split('/')[2]!]).data[0],
-        }),
-      );
-    return Promise.resolve(Response.json({}, { status: 404 }));
-  }
-  if (url.host === 'publish.twitter.com') {
-    oembedCalls += 1;
-    const target = url.searchParams.get('url') ?? '';
-    if (target.endsWith('/404')) return Promise.resolve(new Response('', { status: 404 }));
-    return Promise.resolve(
-      Response.json({
-        author_name: 'Someone',
-        author_url: 'https://twitter.com/someone',
-        html: '<blockquote><p lang="en" dir="ltr">Public post text</p>&mdash; Someone (@someone) <a href="https://twitter.com/someone/status/1?ref_src=x">October 1, 2026</a></blockquote>',
-      }),
-    );
-  }
+  if (url.host === 'api.apify.com') return fakeApify(url, init);
   if (url.host === 'api.buffer.com') {
     const { query, variables } = JSON.parse(String(init?.body)) as {
       query: string;
@@ -132,14 +155,14 @@ async function sweep(notes = 200) {
   return response.data!;
 }
 
-async function setup(options: { xToken?: boolean; buffer?: boolean } = {}) {
+async function setup(options: { apifyToken?: boolean; buffer?: boolean } = {}) {
   const owner = await signUpTestUser({ name: 'Owner' });
   const asOwner = authedApi(owner.cookie);
   await asOwner.projects.post({ key: 'MKT', name: 'Marketing' });
-  if (options.xToken !== false) {
+  if (options.apifyToken !== false) {
     await asOwner.projects({ projectKey: 'MKT' }).integrations.post({
-      integrationKey: 'x_api',
-      credential: { bearerToken: 'x-test-token' },
+      integrationKey: 'apify',
+      credential: { apiToken: 'apify-test-token' },
     });
   }
   if (options.buffer !== false) {
@@ -210,6 +233,7 @@ describe('Twitter', () => {
     vault: process.env.OBSIDIAN_VAULT_DIR,
     worker: process.env.WORKER_INTERNAL_TOKEN,
     retry: process.env.TWITTER_NOTE_RETRY_BASE_MS,
+    apify: process.env.APIFY_TOKEN,
   };
 
   beforeEach(async () => {
@@ -218,9 +242,10 @@ describe('Twitter', () => {
     process.env.OBSIDIAN_VAULT_DIR = vault;
     process.env.WORKER_INTERNAL_TOKEN = WORKER_TOKEN;
     process.env.TWITTER_NOTE_RETRY_BASE_MS = '1';
-    xCalls = [];
-    xNext = {};
-    oembedCalls = 0;
+    delete process.env.APIFY_TOKEN;
+    apifyCalls = [];
+    apifyNext = {};
+    apifyRuns = new Map();
     bufferCalls = [];
     bufferCreateQueue = [];
     bufferPosts = [];
@@ -238,6 +263,7 @@ describe('Twitter', () => {
       ['OBSIDIAN_VAULT_DIR', env.vault],
       ['WORKER_INTERNAL_TOKEN', env.worker],
       ['TWITTER_NOTE_RETRY_BASE_MS', env.retry],
+      ['APIFY_TOKEN', env.apify],
     ] as const) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
@@ -261,7 +287,7 @@ describe('Twitter', () => {
         kind: 'search',
         status: 'completed',
         foundCount: 2,
-        adapters: ['x_api'],
+        adapters: ['apify'],
       });
       expect(run.data!.storage).toMatchObject({ complete: false, written: 0 });
       expect(run.data!.items.map((i) => i.canonicalUrl).sort()).toEqual([
@@ -273,8 +299,17 @@ describe('Twitter', () => {
         obsidianStatus: 'pending',
         verificationStatus: 'unverified',
       });
-      expect(xCalls[0]!.query.get('query')).toBe('("ai agents" OR #ai) lang:en -is:retweet');
-      expect(xCalls[0]!.authorization).toBe('Bearer x-test-token');
+      expect(apifyCalls).toHaveLength(1);
+      expect(apifyCalls[0]).toMatchObject({
+        actor: 'x-posts-search',
+        input: {
+          query: '("ai agents" OR #ai) lang:en -filter:retweets',
+          resultsCount: 10,
+          searchType: 'latest',
+        },
+        maxItems: '10',
+        authorization: 'Bearer apify-test-token',
+      });
       expect(existsSync(path.join(vault, 'Socials/Twitter/Posts/101.md'))).toBe(false);
 
       await sweep();
@@ -369,12 +404,12 @@ describe('Twitter', () => {
         idempotencyKey: key(),
       });
       expect(wrongTool.status).toBe(400);
-      expect(xCalls).toHaveLength(0);
+      expect(apifyCalls).toHaveLength(0);
     });
 
     it('completes with no results when X finds nothing', async () => {
       const { asOwner } = await setup();
-      xNext['/tweets/search/recent'] = { body: { meta: { result_count: 0 } } };
+      apifyNext['x-posts-search'] = { body: [] };
       const run = await twitter(asOwner).research.search.post({
         terms: ['nothing'],
         idempotencyKey: key(),
@@ -383,13 +418,14 @@ describe('Twitter', () => {
     });
 
     for (const [status, reason] of [
-      [401, 'refused the request (401)'],
+      [401, 'refused the API token (401)'],
+      [402, 'needs a paid plan or more credit'],
       [403, 'denied access (403)'],
       [429, 'rate limit reached'],
     ] as const) {
       it(`stops at ${status}, keeps what it had, and does not retry`, async () => {
         const { asOwner } = await setup();
-        xNext['/tweets/search/recent'] = { status };
+        apifyNext['x-posts-search'] = { status };
         const run = await twitter(asOwner).research.search.post({
           terms: ['ai'],
           urls: ['https://x.com/vexoleu/status/555'],
@@ -399,9 +435,9 @@ describe('Twitter', () => {
         expect(run.data!.stopReason).toContain(reason);
         // The post lookup ran before the search and is kept.
         expect(run.data!.items.map((i) => i.postId)).toEqual(['555']);
-        const calls = xCalls.length;
+        const calls = apifyCalls.length;
         await sweep();
-        expect(xCalls).toHaveLength(calls);
+        expect(apifyCalls).toHaveLength(calls);
         const again = await twitter(asOwner).research.runs({ runId: run.data!.id }).get();
         expect(again.data!.status).toBe('stopped');
         const activity = await twitter(asOwner).activity.get({ query: { level: 'error' } });
@@ -411,7 +447,7 @@ describe('Twitter', () => {
 
     it('retries a run that only timed out, then gives up', async () => {
       const { asOwner } = await setup();
-      xNext['/tweets/search/recent'] = { throws: true };
+      apifyNext['x-posts-search'] = { throws: true };
       const created = await twitter(asOwner).research.runs.post({
         terms: ['ai'],
         idempotencyKey: key(),
@@ -432,14 +468,14 @@ describe('Twitter', () => {
 
     it('reports partial results when one part of a run fails', async () => {
       const { asOwner } = await setup();
-      xNext['/tweets/search/recent'] = { status: 503 };
+      apifyNext['x-posts-search'] = { status: 503 };
       const run = await twitter(asOwner).research.search.post({
         terms: ['ai'],
         urls: ['https://twitter.com/VexolEU/status/777'],
         idempotencyKey: key(),
       });
       expect(run.data).toMatchObject({ status: 'partial', foundCount: 1 });
-      expect(run.data!.warnings).toContain('X API returned 503');
+      expect(run.data!.warnings).toContain('Apify X Scraper returned 503');
     });
 
     it('deduplicates posts across runs and writes one note per post', async () => {
@@ -473,35 +509,108 @@ describe('Twitter', () => {
       expect(completed.data![0]!.summary).toContain('0 new, 2 already in the library');
     });
 
-    it('reads a post URL through oEmbed without an X API token', async () => {
-      const { asOwner } = await setup({ xToken: false });
+    it('reads post URLs through the replies Actor, keeping only the original posts', async () => {
+      const { asOwner } = await setup();
       const run = await twitter(asOwner).research.post.post({
         urls: ['https://twitter.com/Someone/status/42?s=20', 'https://x.com/someone/status/404'],
         idempotencyKey: key(),
       });
-      expect(run.data).toMatchObject({ status: 'completed', adapters: ['oembed'], foundCount: 1 });
+      expect(run.data).toMatchObject({ status: 'completed', adapters: ['apify'], foundCount: 1 });
       expect(run.data!.items[0]).toMatchObject({
         canonicalUrl: 'https://x.com/someone/status/42',
-        text: 'Public post text',
-        metrics: null,
-        adapter: 'oembed',
-        sourceStatus: 'partial',
+        adapter: 'apify',
+        metrics: { like_count: 10, retweet_count: 2, reply_count: 1, quote_count: 0 },
       });
       expect(run.data!.warnings).toContain('Post 404 is not available publicly.');
-      expect(oembedCalls).toBe(2);
-      expect(xCalls).toHaveLength(0);
+      expect(apifyCalls).toHaveLength(1);
+      expect(apifyCalls[0]).toMatchObject({
+        actor: 'x-post-replies-scraper',
+        input: {
+          postUrls: ['https://x.com/someone/status/42', 'https://x.com/someone/status/404'],
+          includeOriginalPost: true,
+          resultsLimit: 1,
+        },
+      });
     });
 
-    it('fails a search without an X API token instead of scraping', async () => {
-      const { asOwner } = await setup({ xToken: false });
+    it('collects replies when they are asked for', async () => {
+      const { asOwner } = await setup();
+      const run = await twitter(asOwner).research.post.post({
+        urls: ['https://x.com/vexoleu/status/42'],
+        replies: true,
+        maxResults: 3,
+        idempotencyKey: key(),
+      });
+      expect(run.data!.items.map((i) => i.canonicalUrl).sort()).toEqual([
+        'https://x.com/fan/status/942',
+        'https://x.com/vexoleu/status/42',
+      ]);
+      expect(apifyCalls[0]).toMatchObject({ input: { resultsLimit: 3 }, maxItems: '3' });
+    });
+
+    it('reads handles through the profile Actor', async () => {
+      const { asOwner } = await setup();
+      const run = await twitter(asOwner).research.profile.post({
+        handles: ['VexolEU'],
+        maxResults: 3,
+        idempotencyKey: key(),
+      });
+      expect(run.data).toMatchObject({ status: 'completed', foundCount: 1 });
+      expect(apifyCalls[0]).toMatchObject({
+        actor: 'x-profile-posts-scraper',
+        input: { profileUrls: ['https://x.com/vexoleu'], resultsLimit: 3 },
+        maxItems: '3',
+      });
+    });
+
+    it('shows each Actor run with its run ID, dataset ID and status in Activity', async () => {
+      const { asOwner } = await setup();
+      apifyNext['x-posts-search'] = { runStatus: 'FAILED' };
+      const run = await twitter(asOwner).research.search.post({
+        terms: ['ai'],
+        urls: ['https://x.com/vexoleu/status/42'],
+        idempotencyKey: key(),
+      });
+      expect(run.data).toMatchObject({ status: 'partial', foundCount: 1 });
+      expect(run.data!.warnings).toContain(
+        'Apify X Scraper: scraper_one/x-posts-search run run2 ended with FAILED',
+      );
+      const activity = await twitter(asOwner).activity.get({
+        query: { event: 'twitter.apify.run' },
+      });
+      const summaries = activity.data!.map((a) => a.summary);
+      expect(summaries).toEqual(
+        expect.arrayContaining([
+          'Apify scraper_one/x-post-replies-scraper · run run1 · dataset ds-run1 · SUCCEEDED · 1 results',
+          expect.stringContaining(
+            'Apify scraper_one/x-posts-search · run run2 · dataset ds-run2 · FAILED · 0 results · ',
+          ),
+        ]),
+      );
+      expect(activity.data!.find((a) => a.summary.includes('FAILED'))!.level).toBe('error');
+    });
+
+    it('does not research without an Apify token and has no other source', async () => {
+      const { asOwner } = await setup({ apifyToken: false });
+      const run = await twitter(asOwner).research.search.post({
+        terms: ['ai'],
+        urls: ['https://x.com/vexoleu/status/42'],
+        idempotencyKey: key(),
+      });
+      expect(run.data!.status).toBe('failed');
+      expect(run.data!.lastError).toContain('needs an Apify API token');
+      expect(apifyCalls).toHaveLength(0);
+    });
+
+    it('uses the server APIFY_TOKEN for a project without its own token', async () => {
+      process.env.APIFY_TOKEN = 'server-token';
+      const { asOwner } = await setup({ apifyToken: false });
       const run = await twitter(asOwner).research.search.post({
         terms: ['ai'],
         idempotencyKey: key(),
       });
-      expect(run.data!.status).toBe('failed');
-      expect(run.data!.lastError).toContain('needs an X API bearer token');
-      expect(xCalls).toHaveLength(0);
-      expect(oembedCalls).toBe(0);
+      expect(run.data!.status).toBe('completed');
+      expect(apifyCalls[0]!.authorization).toBe('Bearer server-token');
     });
 
     it('takes posts an agent collected and deduplicates them with the library', async () => {
@@ -946,11 +1055,18 @@ describe('Twitter', () => {
       const { asOwner } = await setup();
       const status = await twitter(asOwner).status.get();
       expect(status.data).toMatchObject({
-        xApi: { configured: true },
+        apify: { configured: true },
         buffer: { configured: true },
       });
       const text = JSON.stringify(status.data);
-      for (const secret of ['x-test-token', 'bk-test', vault]) expect(text).not.toContain(secret);
+      for (const secret of ['apify-test-token', 'bk-test', vault])
+        expect(text).not.toContain(secret);
+      const tested = await twitter(asOwner).status.test.post({ target: 'apify' });
+      expect(tested.data).toEqual({
+        ok: true,
+        message: 'Apify X Scraper accepted the token (account tester)',
+      });
+      expect(apifyCalls).toHaveLength(0);
     });
   });
 
