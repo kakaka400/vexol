@@ -1,11 +1,13 @@
 import { usePathname } from 'next/navigation';
-import { BookOpen, Instagram, Radar, Twitter, Wand2 } from 'lucide-react';
+import { BookOpen, Instagram, Linkedin, Radar, Twitter, Wand2 } from 'lucide-react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useSession } from '@/lib/auth-client';
 import {
   blogPath,
   competitorsPath,
+  isLinkedinPath,
   isTwitterPath,
+  linkedinPath,
   socialPath,
   studioPath,
   twitterPath,
@@ -28,8 +30,11 @@ export default function SidebarGrowthNav({ projectKey }: { projectKey: string | 
   const showCompetitors = can('competitors', 'read');
   const showStudio = can('studio', 'read');
   const showTwitter = can('twitter', 'read');
-  if (!showSocial && !showTwitter && !showCompetitors && !showStudio && !isGod) return null;
+  const showLinkedin = can('linkedin', 'read');
+  if (!showSocial && !showTwitter && !showLinkedin && !showCompetitors && !showStudio && !isGod)
+    return null;
   const onTwitter = isTwitterPath(pathname);
+  const onLinkedin = isLinkedinPath(pathname);
 
   return (
     <SidebarGroup>
@@ -41,7 +46,7 @@ export default function SidebarGrowthNav({ projectKey }: { projectKey: string | 
               href={projectKey ? socialPath(projectKey) : '#'}
               icon={Instagram}
               label="Social"
-              active={pathname.includes('/social') && !onTwitter}
+              active={pathname.includes('/social') && !onTwitter && !onLinkedin}
               disabled={!projectKey}
             />
           )}
@@ -51,6 +56,15 @@ export default function SidebarGrowthNav({ projectKey }: { projectKey: string | 
               icon={Twitter}
               label="Twitter"
               active={onTwitter}
+              disabled={!projectKey}
+            />
+          )}
+          {showLinkedin && (
+            <SidebarNavItem
+              href={projectKey ? linkedinPath(projectKey) : '#'}
+              icon={Linkedin}
+              label="LinkedIn"
+              active={onLinkedin}
               disabled={!projectKey}
             />
           )}

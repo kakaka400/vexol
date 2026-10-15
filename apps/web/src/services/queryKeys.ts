@@ -150,6 +150,8 @@ export const qk = {
     ['twitter', projectKey, 'activity', filters] as const,
   twitterSettings: (projectKey: string) => ['twitter', projectKey, 'settings'] as const,
   twitterStatus: (projectKey: string) => ['twitter', projectKey, 'status'] as const,
+  linkedinChannels: (projectKey: string) => ['linkedin', projectKey, 'channels'] as const,
+  linkedinPosts: (projectKey: string) => ['linkedin', projectKey, 'posts'] as const,
   studioTemplates: (projectKey: string) => ['studioTemplates', projectKey] as const,
   studioPosts: (projectKey: string) => ['studioPosts', projectKey] as const,
   studioDrafts: (projectKey: string) => ['studioDrafts', projectKey] as const,

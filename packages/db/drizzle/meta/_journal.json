@@ -624,6 +624,13 @@
       "when": 1791496875559,
       "tag": "0088_twitter_buffer",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1792091210376,
+      "tag": "0089_linkedin_post",
+      "breakpoints": true
     }
   ]
 }

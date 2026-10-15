@@ -79,7 +79,13 @@ async function bufferRequest(
 
 const CHANNEL_FIELDS = 'id name displayName avatar service isDisconnected isLocked';
 
-export async function listTwitterChannels(apiKey: string): Promise<TwitterChannel[]> {
+export const listTwitterChannels = (apiKey: string) => listBufferChannels(apiKey, 'twitter');
+
+// The project's Buffer channels of one service ('twitter', 'linkedin', …).
+export async function listBufferChannels(
+  apiKey: string,
+  service: string,
+): Promise<TwitterChannel[]> {
   const data = await bufferRequest(apiKey, '{ account { organizations { id } } }', {});
   const organizations = Array.isArray(obj(data.account).organizations)
     ? (obj(data.account).organizations as unknown[]).map(obj)
@@ -96,10 +102,10 @@ export async function listTwitterChannels(apiKey: string): Promise<TwitterChanne
       { organizationId: id },
     );
     for (const channel of Array.isArray(result.channels) ? result.channels.map(obj) : []) {
-      if (channel.service !== 'twitter' || !str(channel.id)) continue;
+      if (channel.service !== service || !str(channel.id)) continue;
       channels.push({
         id: str(channel.id)!,
-        platform: 'twitter',
+        platform: service,
         username: str(channel.name) ?? '',
         displayName: str(channel.displayName) ?? str(channel.name) ?? '',
         profilePicture: str(channel.avatar),

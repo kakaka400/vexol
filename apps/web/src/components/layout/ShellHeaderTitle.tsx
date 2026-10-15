@@ -19,7 +19,8 @@ function pageLabel(route: ShellRoute, projectName: string): string {
   if (sub === 'accounting') return 'Accounting';
   if (sub === 'leads') return 'Leads';
   if (sub === 'servers') return 'Servers';
-  if (sub === 'social') return child === 'twitter' ? 'Twitter' : 'Social';
+  if (sub === 'social')
+    return child === 'twitter' ? 'Twitter' : child === 'linkedin' ? 'LinkedIn' : 'Social';
   if (sub === 'braindump') return 'Braindump';
   if (sub === 'mind') return 'Mind';
   if (sub === 'competitors') return 'Competitors';

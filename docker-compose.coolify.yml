@@ -93,6 +93,9 @@ services:
       HERMES_BOB_API_KEY: ${HERMES_BOB_API_KEY:?set the default-profile Hermes API_SERVER_KEY in Coolify}
       HERMES_VERA_PROJECT_KEY: ${HERMES_VERA_PROJECT_KEY:-}
       HERMES_VERA_API_KEY: ${HERMES_VERA_API_KEY:-}
+      HERMES_LINKEDIN_PROFILE: ${HERMES_LINKEDIN_PROFILE:-}
+      HERMES_LINKEDIN_PROJECT_KEY: ${HERMES_LINKEDIN_PROJECT_KEY:-}
+      HERMES_LINKEDIN_API_KEY: ${HERMES_LINKEDIN_API_KEY:-}
       # Optional fallback: a project's Zernio key is normally added in Settings → Integrations.
       ZERNIO_API: ${ZERNIO_API:-}
       ZERNIO_PROJECT_KEY: ${ZERNIO_PROJECT_KEY:-}

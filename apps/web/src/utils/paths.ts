@@ -33,9 +33,12 @@ export const serverConsolePath = (key: string, serverId: number) =>
   `${serversPath(key)}/${serverId}`;
 export const socialPath = (key: string) => `${projectPath(key)}/social`;
 export const twitterPath = (key: string) => `${socialPath(key)}/twitter`;
+export const linkedinPath = (key: string) => `${socialPath(key)}/linkedin`;
 export const blogPath = (key: string) => `${socialPath(key)}/blog`;
 export const isTwitterPath = (pathname: string) =>
   /^\/project\/[^/]+\/social\/twitter(?:\/|$)/.test(pathname);
+export const isLinkedinPath = (pathname: string) =>
+  /^\/project\/[^/]+\/social\/linkedin(?:\/|$)/.test(pathname);
 export const competitorsPath = (key: string) => `${projectPath(key)}/competitors`;
 export const studioPath = (key: string) => `${projectPath(key)}/studio`;
 export const phonePath = (key: string) => `${projectPath(key)}/phone`;

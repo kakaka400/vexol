@@ -2386,3 +2386,38 @@ export const twitterSettings = pgTable('twitter_settings', {
   toneOfVoice: text('tone_of_voice').notNull().default(''),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// A LinkedIn post handed to Buffer from the LinkedIn page. `unknown` means the
+// request went out and no answer came back; a refresh looks the post up in Buffer.
+export const linkedinPost = pgTable(
+  'linkedin_post',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    idempotencyKey: text('idempotency_key').notNull(),
+    text: text('text').notNull(),
+    imageUrls: jsonb('image_urls').$type<string[]>().notNull().default([]),
+    channelId: text('channel_id').notNull(),
+    channelName: text('channel_name'),
+    mode: text('mode').notNull(),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+    status: text('status').notNull().default('pending'),
+    bufferPostId: text('buffer_post_id'),
+    platformPostUrl: text('platform_post_url'),
+    lastError: text('last_error'),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('linkedin_post_idempotency_unique').on(t.projectId, t.idempotencyKey),
+    index('linkedin_post_project_idx').on(t.projectId, t.createdAt.desc()),
+    check('linkedin_post_mode_check', sql`${t.mode} IN ('now', 'schedule')`),
+    check(
+      'linkedin_post_status_check',
+      sql`${t.status} IN ('pending', 'unknown', 'scheduled', 'published', 'failed')`,
+    ),
+  ],
+);

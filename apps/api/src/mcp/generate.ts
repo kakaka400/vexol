@@ -50,6 +50,10 @@ export const MCP_SERVERS = {
     path: '/mcp/twitter-agent',
     title: 'Vexol Twitter agent',
   },
+  'linkedin-agent': {
+    path: '/mcp/linkedin-agent',
+    title: 'Vexol LinkedIn agent',
+  },
 } as const;
 export type McpServerName = keyof typeof MCP_SERVERS;
 

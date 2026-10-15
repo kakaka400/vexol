@@ -27,6 +27,7 @@ import { competitorRoutes } from './competitors/routes';
 import { studioRoutes } from './studio/routes';
 import { studioDraftRoutes } from './studio-drafts/routes';
 import { twitterRoutes } from './twitter/routes';
+import { linkedinRoutes } from './linkedin/routes';
 import { blogRoutes } from './blog/routes';
 import { phoneRoutes } from './phone/routes';
 import { serverRoutes } from './servers/routes';
@@ -117,6 +118,7 @@ export const planner = new Elysia({ name: 'planner' })
   .use(studioRoutes)
   .use(studioDraftRoutes)
   .use(twitterRoutes)
+  .use(linkedinRoutes)
   .use(blogRoutes)
   .use(phoneRoutes)
   .use(serverRoutes)

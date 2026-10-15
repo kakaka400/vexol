@@ -33,6 +33,7 @@ export const PERMISSION_RESOURCES = [
   'studio',
   'twitter',
   'twitter_publish',
+  'linkedin',
   'phone',
   'servers',
   'mail',

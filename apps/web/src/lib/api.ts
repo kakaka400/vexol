@@ -2218,6 +2218,7 @@ export type PermissionResource =
   | 'studio'
   | 'twitter'
   | 'twitter_publish'
+  | 'linkedin'
   | 'phone'
   | 'servers'
   | 'mail'
@@ -3091,6 +3092,40 @@ export interface TwitterChannels {
   capabilities: Record<string, boolean | number>;
 }
 
+// LinkedIn (Growth → Social → LinkedIn): posts sent through the project's Buffer
+// account. Shapes mirror apps/api/src/linkedin.
+export interface LinkedinChannels {
+  configured: boolean;
+  error: string | null;
+  channels: TwitterChannel[];
+}
+
+export interface LinkedinPost {
+  id: string;
+  text: string;
+  imageUrls: string[];
+  channelId: string;
+  channelName: string | null;
+  mode: 'now' | 'schedule';
+  scheduledFor: string | null;
+  status: 'pending' | 'unknown' | 'scheduled' | 'published' | 'failed';
+  bufferPostId: string | null;
+  platformPostUrl: string | null;
+  lastError: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LinkedinPostInput {
+  text: string;
+  imageUrls: string[];
+  channelId: string;
+  mode: 'now' | 'schedule';
+  scheduledFor?: string;
+  idempotencyKey: string;
+}
+
 function queryString(filters: object): string {
   const query = new URLSearchParams(
     Object.entries(filters).filter((entry): entry is [string, string] => Boolean(entry[1])),
@@ -3099,6 +3134,7 @@ function queryString(filters: object): string {
 }
 
 const twitterBase = (projectKey: string) => `/projects/${encodeURIComponent(projectKey)}/twitter`;
+const linkedinBase = (projectKey: string) => `/projects/${encodeURIComponent(projectKey)}/linkedin`;
 
 export interface StudioPost {
   id: string;
@@ -3981,6 +4017,20 @@ export const api = {
     }),
   retryTwitterNotes: (projectKey: string) =>
     request<{ requeued: number }>(`${twitterBase(projectKey)}/obsidian/retry`, { method: 'POST' }),
+  listLinkedinChannels: (projectKey: string) =>
+    request<LinkedinChannels>(`${linkedinBase(projectKey)}/channels`),
+  listLinkedinPosts: (projectKey: string) =>
+    request<LinkedinPost[]>(`${linkedinBase(projectKey)}/posts`),
+  createLinkedinPost: (projectKey: string, input: LinkedinPostInput) =>
+    request<LinkedinPost>(`${linkedinBase(projectKey)}/posts`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  refreshLinkedinPost: (projectKey: string, postId: string) =>
+    request<LinkedinPost>(
+      `${linkedinBase(projectKey)}/posts/${encodeURIComponent(postId)}/refresh`,
+      { method: 'POST' },
+    ),
   getServerOverview: (projectKey: string) =>
     request<ServerOverview>(`/projects/${encodeURIComponent(projectKey)}/servers/overview`),
   listServers: (projectKey: string) =>

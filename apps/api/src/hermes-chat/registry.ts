@@ -10,6 +10,9 @@ export interface HermesAgentRoute {
   enabled: boolean;
 }
 
+// The name of the LinkedIn profile in Hermes.
+const LINKEDIN_PROFILE = process.env.HERMES_LINKEDIN_PROFILE || 'linkedin';
+
 const HERMES_AGENTS: Record<string, HermesAgentRoute> = {
   bob: {
     slug: 'bob',
@@ -31,6 +34,17 @@ const HERMES_AGENTS: Record<string, HermesAgentRoute> = {
     pathPrefix: '/p/vera-social',
     apiKeyEnv: 'HERMES_VERA_API_KEY',
     projectKeyEnv: 'HERMES_VERA_PROJECT_KEY',
+    enabled: true,
+  },
+  linkedin: {
+    slug: 'linkedin',
+    displayName: 'LinkedIn agent',
+    description: 'Writes, publishes and schedules LinkedIn posts through Buffer',
+    usernames: ['linkedin', 'linkedin-agent'],
+    profile: LINKEDIN_PROFILE,
+    pathPrefix: `/p/${LINKEDIN_PROFILE}`,
+    apiKeyEnv: 'HERMES_LINKEDIN_API_KEY',
+    projectKeyEnv: 'HERMES_LINKEDIN_PROJECT_KEY',
     enabled: true,
   },
 };
