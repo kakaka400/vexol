@@ -12,6 +12,8 @@ export interface HermesAgentRoute {
 
 // The name of the LinkedIn profile in Hermes.
 const LINKEDIN_PROFILE = process.env.HERMES_LINKEDIN_PROFILE || 'linkedin';
+// The name of the TikTok profile in Hermes.
+const TIKTOK_PROFILE = process.env.HERMES_TIKTOK_PROFILE || 'tiktok';
 
 const HERMES_AGENTS: Record<string, HermesAgentRoute> = {
   bob: {
@@ -45,6 +47,17 @@ const HERMES_AGENTS: Record<string, HermesAgentRoute> = {
     pathPrefix: `/p/${LINKEDIN_PROFILE}`,
     apiKeyEnv: 'HERMES_LINKEDIN_API_KEY',
     projectKeyEnv: 'HERMES_LINKEDIN_PROJECT_KEY',
+    enabled: true,
+  },
+  tiktok: {
+    slug: 'tiktok',
+    displayName: 'TikTok agent',
+    description: 'Makes animated TikTok videos and posts them through Buffer',
+    usernames: ['tiktok', 'tiktok-agent'],
+    profile: TIKTOK_PROFILE,
+    pathPrefix: `/p/${TIKTOK_PROFILE}`,
+    apiKeyEnv: 'HERMES_TIKTOK_API_KEY',
+    projectKeyEnv: 'HERMES_TIKTOK_PROJECT_KEY',
     enabled: true,
   },
 };

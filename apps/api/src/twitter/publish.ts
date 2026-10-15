@@ -116,6 +116,18 @@ export async function listBufferChannels(
   return channels;
 }
 
+// The time a scheduled post goes out: at least a minute and at most a year ahead.
+export function scheduledTime(mode: 'now' | 'schedule', value: string | undefined): Date | null {
+  if (mode === 'now') return null;
+  const when = value ? new Date(value) : null;
+  if (!when || Number.isNaN(when.getTime())) throw new HttpError(400, 'Choose a date and time');
+  if (when.getTime() < Date.now() + 60_000)
+    throw new HttpError(400, 'The scheduled time must be at least a minute ahead');
+  if (when.getTime() > Date.now() + 365 * 24 * 60 * 60_000)
+    throw new HttpError(400, 'The scheduled time is more than a year ahead');
+  return when;
+}
+
 export type BufferOutcome =
   | {
       kind: 'accepted';
@@ -162,11 +174,15 @@ export function readBufferPost(
 export function createPostInput(input: {
   posts: string[];
   images: string[];
+  videos?: string[];
   channelId: string;
   mode: 'now' | 'schedule';
   scheduledFor: Date | null;
 }) {
-  const assets = input.images.map((url) => ({ image: { url } }));
+  const assets = [
+    ...input.images.map((url) => ({ image: { url } })),
+    ...(input.videos ?? []).map((url) => ({ video: { url } })),
+  ];
   const thread = input.posts.length > 1;
   return {
     text: input.posts[0],

@@ -9,17 +9,23 @@ import {
 } from '@/services/aiAgents.service';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
-import { HermesConversationList } from '@/components/common/agent-chat/HermesConversationList';
-import LinkedinAgentConversation from './LinkedinAgentConversation';
+import { HermesAgentConversation } from './HermesAgentConversation';
+import { HermesConversationList } from './HermesConversationList';
 
-export default function LinkedinAgentWorkspace({
+export function HermesAgentWorkspace({
   projectKey,
   agent,
   ready,
+  label,
+  subtitle,
+  onReplied,
 }: {
   projectKey: string;
   agent: AiAgent;
   ready: boolean;
+  label: string;
+  subtitle: string;
+  onReplied: () => void;
 }) {
   const conversationsQuery = useHermesConversationsQuery(projectKey, agent.id);
   const conversations = conversationsQuery.data ?? [];
@@ -61,12 +67,14 @@ export default function LinkedinAgentWorkspace({
       </div>
       <div className="flex min-h-0 flex-col">
         {activeId ? (
-          <LinkedinAgentConversation
+          <HermesAgentConversation
             key={activeId}
             projectKey={projectKey}
             agent={agent}
             conversationId={activeId}
             ready={ready}
+            subtitle={subtitle}
+            onReplied={onReplied}
           />
         ) : (
           <Empty className="h-full">
@@ -74,8 +82,8 @@ export default function LinkedinAgentWorkspace({
               <EmptyTitle>Give the agent a task</EmptyTitle>
               <EmptyDescription>
                 {ready
-                  ? 'Open a conversation and say what to post on LinkedIn, and when.'
-                  : 'The LinkedIn agent is offline. The Hermes gateway did not answer the readiness check.'}
+                  ? 'Open a conversation and say what you need.'
+                  : `The ${label} is offline. The Hermes gateway did not answer the readiness check.`}
               </EmptyDescription>
             </EmptyHeader>
             <Button onClick={startNewChat} disabled={!ready || createConversation.isPending}>

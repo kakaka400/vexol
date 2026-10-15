@@ -10,6 +10,7 @@ import {
   findSentBufferPost,
   listBufferChannels,
   resolveBufferKey,
+  scheduledTime,
   sendToBuffer,
 } from '../twitter/publish';
 import { beginPost, finishPost, getPost, listPosts } from './store';
@@ -61,17 +62,6 @@ const Post = t.Object({
   createdAt: t.String(),
   updatedAt: t.String(),
 });
-
-function scheduleTime(mode: 'now' | 'schedule', value: string | undefined): Date | null {
-  if (mode === 'now') return null;
-  const when = value ? new Date(value) : null;
-  if (!when || Number.isNaN(when.getTime())) throw new HttpError(400, 'Choose a date and time');
-  if (when.getTime() < Date.now() + 60_000)
-    throw new HttpError(400, 'The scheduled time must be at least a minute ahead');
-  if (when.getTime() > Date.now() + 365 * 24 * 60 * 60_000)
-    throw new HttpError(400, 'The scheduled time is more than a year ahead');
-  return when;
-}
 
 // LinkedIn posts go out through the project's Buffer account, the same one the
 // Twitter section uses.
@@ -134,7 +124,7 @@ export const linkedinRoutes = new Elysia({ name: 'linkedin', detail: { tags: ['L
     async ({ project, body, user, set }) => {
       const text = body.text.trim();
       if (!text) throw new HttpError(400, 'Write the post text');
-      const scheduledFor = scheduleTime(body.mode, body.scheduledFor);
+      const scheduledFor = scheduledTime(body.mode, body.scheduledFor);
       const apiKey = await resolveBufferKey(project.id);
       const channel = (await listBufferChannels(apiKey, 'linkedin')).find(
         (candidate) => candidate.id === body.channelId,

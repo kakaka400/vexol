@@ -1,35 +1,33 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { Bot } from 'lucide-react';
 import type { AiAgent } from '@/lib/api';
-import { qk } from '@/services/queryKeys';
 import { Badge } from '@/components/ui/badge';
-import { AgentChatPanel } from '@/components/common/agent-chat/AgentChatPanel';
-import { AiChatThreadSkeleton } from '@/components/common/agent-chat/AiChatThreadSkeleton';
 import { useHermesChat } from '@/hooks/useHermesChat';
+import { AgentChatPanel } from './AgentChatPanel';
+import { AiChatThreadSkeleton } from './AiChatThreadSkeleton';
 
-export default function LinkedinAgentConversation({
+export function HermesAgentConversation({
   projectKey,
   agent,
   conversationId,
   ready,
+  subtitle,
+  onReplied,
 }: {
   projectKey: string;
   agent: AiAgent;
   conversationId: string;
   ready: boolean;
+  subtitle: string;
+  onReplied: () => void;
 }) {
-  const queryClient = useQueryClient();
   const chat = useHermesChat(projectKey, agent.id, conversationId);
 
-  // A reply may have sent a post through MCP, so the post list is read again.
   useEffect(() => {
-    if (chat.status === 'ready') {
-      void queryClient.invalidateQueries({ queryKey: qk.linkedinPosts(projectKey) });
-    }
-  }, [chat.status, projectKey, queryClient]);
+    if (chat.status === 'ready') onReplied();
+  }, [chat.status, onReplied]);
 
   return (
     <>
@@ -42,9 +40,7 @@ export default function LinkedinAgentConversation({
             <span className="truncate text-sm font-medium">{agent.name}</span>
             <Badge variant={ready ? 'secondary' : 'outline'}>{ready ? 'Ready' : 'Offline'}</Badge>
           </div>
-          <div className="truncate text-xs text-muted-foreground">
-            Publishes and schedules LinkedIn posts through Buffer when you ask it to.
-          </div>
+          <div className="truncate text-xs text-muted-foreground">{subtitle}</div>
         </div>
       </div>
       <div className="min-h-0 flex-1">

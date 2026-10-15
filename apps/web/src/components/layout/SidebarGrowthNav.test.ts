@@ -1,35 +1,51 @@
 import { describe, expect, it } from 'bun:test';
 import { readFile } from 'node:fs/promises';
-import { isTwitterPath, socialPath, twitterPath } from '@/utils/paths';
+import {
+  isLinkedinPath,
+  isTiktokPath,
+  isTwitterPath,
+  linkedinPath,
+  socialPath,
+  tiktokPath,
+  twitterPath,
+} from '@/utils/paths';
 
 const source = await readFile(new URL('./SidebarGrowthNav.tsx', import.meta.url), 'utf8');
 
 describe('SidebarGrowthNav', () => {
-  it('places Twitter directly under Social and before Studio', () => {
-    const social = source.indexOf('label="Social"');
-    const twitter = source.indexOf('label="Twitter"');
-    const studio = source.indexOf('label="Studio"');
-
-    expect(social).toBeGreaterThan(-1);
-    expect(twitter).toBeGreaterThan(social);
-    expect(studio).toBeGreaterThan(twitter);
-    expect(source.slice(social + 'label="Social"'.length, twitter)).not.toContain('label="');
-    expect(source.slice(twitter + 'label="Twitter"'.length, studio)).not.toContain('label="');
+  it('places Twitter, TikTok and LinkedIn directly under Social', () => {
+    const labels = [...source.matchAll(/label="([^"]+)"/g)].map((match) => match[1]);
+    expect(labels.slice(0, 4)).toEqual(['Social', 'Twitter', 'TikTok', 'LinkedIn']);
+    expect(labels).toContain('Studio');
   });
 
-  it('renders Twitter with the shared sidebar item, like its neighbours', () => {
+  it('renders each section with the shared sidebar item behind its own permission', () => {
     const items = source.match(/<SidebarNavItem/g) ?? [];
-    expect(items).toHaveLength(4);
+    expect(items).toHaveLength(7);
     expect(source).toContain("can('twitter', 'read')");
+    expect(source).toContain("can('tiktok', 'read')");
+    expect(source).toContain("can('linkedin', 'read')");
   });
 
-  it('marks only Twitter active on the Twitter route', () => {
+  it('marks only the section of the current route active', () => {
     expect(twitterPath('VEX')).toBe('/project/VEX/social/twitter');
-    expect(isTwitterPath('/project/VEX/social/twitter')).toBe(true);
-    expect(isTwitterPath('/project/VEX/social/twitter/anything')).toBe(true);
-    expect(isTwitterPath(socialPath('VEX'))).toBe(false);
-    expect(isTwitterPath('/project/VEX/social/twitterx')).toBe(false);
-    expect(source).toContain("active={pathname.includes('/social') && !onTwitter}");
+    expect(tiktokPath('VEX')).toBe('/project/VEX/social/tiktok');
+    expect(linkedinPath('VEX')).toBe('/project/VEX/social/linkedin');
+    for (const [match, path] of [
+      [isTwitterPath, twitterPath('VEX')],
+      [isTiktokPath, tiktokPath('VEX')],
+      [isLinkedinPath, linkedinPath('VEX')],
+    ] as const) {
+      expect(match(path)).toBe(true);
+      expect(match(`${path}/anything`)).toBe(true);
+      expect(match(`${path}x`)).toBe(false);
+      expect(match(socialPath('VEX'))).toBe(false);
+    }
+    expect(source).toContain(
+      "active={pathname.includes('/social') && !onTwitter && !onLinkedin && !onTiktok}",
+    );
     expect(source).toContain('active={onTwitter}');
+    expect(source).toContain('active={onTiktok}');
+    expect(source).toContain('active={onLinkedin}');
   });
 });

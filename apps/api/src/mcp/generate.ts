@@ -54,6 +54,10 @@ export const MCP_SERVERS = {
     path: '/mcp/linkedin-agent',
     title: 'Vexol LinkedIn agent',
   },
+  'tiktok-agent': {
+    path: '/mcp/tiktok-agent',
+    title: 'Vexol TikTok agent',
+  },
 } as const;
 export type McpServerName = keyof typeof MCP_SERVERS;
 

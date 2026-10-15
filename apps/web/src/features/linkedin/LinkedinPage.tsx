@@ -1,18 +1,26 @@
 'use client';
 
+import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useShell } from '@/context/shellContext';
 import { usePermissions } from '@/hooks/usePermissions';
+import { qk } from '@/services/queryKeys';
+import { HermesAgentPanel } from '@/components/common/agent-chat/HermesAgentPanel';
 import SectionPageView from '@/components/common/page/SectionPageView';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import LinkedinAgentPanel from './components/LinkedinAgentPanel';
 import LinkedinComposer from './components/LinkedinComposer';
 import LinkedinPostList from './components/LinkedinPostList';
 
 export default function LinkedinPage() {
   const { project } = useShell();
   const { can } = usePermissions();
+  const queryClient = useQueryClient();
   const projectKey = project?.project.key ?? '';
+  const onReplied = useCallback(
+    () => void queryClient.invalidateQueries({ queryKey: qk.linkedinPosts(projectKey) }),
+    [queryClient, projectKey],
+  );
 
   if (!project) return <Skeleton className="m-6 flex-1" />;
   if (!can('linkedin', 'read')) {
@@ -36,7 +44,13 @@ export default function LinkedinPage() {
             <TabsTrigger value="manual">Write yourself</TabsTrigger>
           </TabsList>
           <TabsContent value="agent" className="pt-4">
-            <LinkedinAgentPanel projectKey={projectKey} />
+            <HermesAgentPanel
+              projectKey={projectKey}
+              slug="linkedin"
+              label="LinkedIn agent"
+              subtitle="Publishes and schedules LinkedIn posts through Buffer when you ask it to."
+              onReplied={onReplied}
+            />
           </TabsContent>
           <TabsContent value="manual" className="pt-4">
             {can('linkedin', 'create') ? (

@@ -2219,6 +2219,7 @@ export type PermissionResource =
   | 'twitter'
   | 'twitter_publish'
   | 'linkedin'
+  | 'tiktok'
   | 'phone'
   | 'servers'
   | 'mail'
@@ -3117,6 +3118,53 @@ export interface LinkedinPost {
   updatedAt: string;
 }
 
+// TikTok (Growth → Social → TikTok): animation prompts, video drafts and posts
+// sent through Buffer. Shapes mirror apps/api/src/tiktok.
+export interface TiktokAnimation {
+  prompt: string;
+  colors: string[];
+  style: string;
+  durationSeconds: number;
+}
+
+export interface TiktokTemplate extends TiktokAnimation {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TiktokDraft extends TiktokAnimation {
+  id: string;
+  templateId: string | null;
+  title: string;
+  caption: string;
+  videoUrl: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TiktokDraftInput extends Partial<TiktokAnimation> {
+  title: string;
+  templateId?: string;
+  caption?: string;
+  videoUrl?: string | null;
+}
+
+export interface TiktokPost extends Omit<LinkedinPost, 'text' | 'imageUrls'> {
+  draftId: string | null;
+  caption: string;
+  videoUrl: string;
+}
+
+export interface TiktokPublishInput {
+  channelId: string;
+  mode: 'now' | 'schedule';
+  scheduledFor?: string;
+  idempotencyKey: string;
+}
+
 export interface LinkedinPostInput {
   text: string;
   imageUrls: string[];
@@ -3134,6 +3182,7 @@ function queryString(filters: object): string {
 }
 
 const twitterBase = (projectKey: string) => `/projects/${encodeURIComponent(projectKey)}/twitter`;
+const tiktokBase = (projectKey: string) => `/projects/${encodeURIComponent(projectKey)}/tiktok`;
 const linkedinBase = (projectKey: string) => `/projects/${encodeURIComponent(projectKey)}/linkedin`;
 
 export interface StudioPost {
@@ -4025,6 +4074,58 @@ export const api = {
     request<LinkedinPost>(`${linkedinBase(projectKey)}/posts`, {
       method: 'POST',
       body: JSON.stringify(input),
+    }),
+  listTiktokTemplates: (projectKey: string) =>
+    request<TiktokTemplate[]>(`${tiktokBase(projectKey)}/templates`),
+  createTiktokTemplate: (projectKey: string, input: { name: string } & TiktokAnimation) =>
+    request<TiktokTemplate>(`${tiktokBase(projectKey)}/templates`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateTiktokTemplate: (
+    projectKey: string,
+    templateId: string,
+    patch: Partial<{ name: string } & TiktokAnimation>,
+  ) =>
+    request<TiktokTemplate>(
+      `${tiktokBase(projectKey)}/templates/${encodeURIComponent(templateId)}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+  deleteTiktokTemplate: (projectKey: string, templateId: string) =>
+    request<void>(`${tiktokBase(projectKey)}/templates/${encodeURIComponent(templateId)}`, {
+      method: 'DELETE',
+    }),
+  listTiktokDrafts: (projectKey: string) =>
+    request<TiktokDraft[]>(`${tiktokBase(projectKey)}/drafts`),
+  createTiktokDraft: (projectKey: string, input: TiktokDraftInput) =>
+    request<TiktokDraft>(`${tiktokBase(projectKey)}/drafts`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateTiktokDraft: (
+    projectKey: string,
+    draftId: string,
+    patch: Partial<Omit<TiktokDraftInput, 'templateId'>>,
+  ) =>
+    request<TiktokDraft>(`${tiktokBase(projectKey)}/drafts/${encodeURIComponent(draftId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteTiktokDraft: (projectKey: string, draftId: string) =>
+    request<void>(`${tiktokBase(projectKey)}/drafts/${encodeURIComponent(draftId)}`, {
+      method: 'DELETE',
+    }),
+  listTiktokChannels: (projectKey: string) =>
+    request<LinkedinChannels>(`${tiktokBase(projectKey)}/channels`),
+  publishTiktokDraft: (projectKey: string, draftId: string, input: TiktokPublishInput) =>
+    request<TiktokPost>(`${tiktokBase(projectKey)}/drafts/${encodeURIComponent(draftId)}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  listTiktokPosts: (projectKey: string) => request<TiktokPost[]>(`${tiktokBase(projectKey)}/posts`),
+  refreshTiktokPost: (projectKey: string, postId: string) =>
+    request<TiktokPost>(`${tiktokBase(projectKey)}/posts/${encodeURIComponent(postId)}/refresh`, {
+      method: 'POST',
     }),
   refreshLinkedinPost: (projectKey: string, postId: string) =>
     request<LinkedinPost>(

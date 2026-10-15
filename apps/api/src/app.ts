@@ -21,6 +21,7 @@ import { mountBobMcp } from './bob-mcp/mount';
 import { internalTwitterRoutes } from './twitter/internal-routes';
 import { twitterMcpScope } from './twitter/mcp';
 import { linkedinMcpScope } from './linkedin/mcp';
+import { tiktokMcpScope } from './tiktok/mcp';
 
 // The assembled Elysia app, without `.listen()`. `index.ts` imports this and
 // binds the port; tests import it and pass it to Eden Treaty to drive routes in
@@ -142,6 +143,10 @@ export const app = new Elysia()
               'Public X research, its Obsidian notes, drafts and publishing through Zernio',
           },
           { name: 'LinkedIn', description: 'LinkedIn posts published through Buffer' },
+          {
+            name: 'TikTok',
+            description: 'Animation prompts, video drafts and TikTok posts through Buffer',
+          },
           { name: 'Blog', description: 'Blog post approval' },
           {
             name: 'Phone',
@@ -267,6 +272,7 @@ mountBobMcp(app);
 mountMcp(app, twitterMcpScope('twitter-research'));
 mountMcp(app, twitterMcpScope('twitter-agent'));
 mountMcp(app, linkedinMcpScope);
+mountMcp(app, tiktokMcpScope);
 
 // Hands the assembled app to the internal agent runtime, which builds an agent's
 // tools from the same mcpTool() routes and dispatches them in process. It cannot

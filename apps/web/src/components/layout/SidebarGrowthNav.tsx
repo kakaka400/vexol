@@ -1,13 +1,15 @@
 import { usePathname } from 'next/navigation';
-import { BookOpen, Instagram, Linkedin, Radar, Twitter, Wand2 } from 'lucide-react';
+import { BookOpen, Clapperboard, Instagram, Linkedin, Radar, Twitter, Wand2 } from 'lucide-react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useSession } from '@/lib/auth-client';
 import {
   blogPath,
   competitorsPath,
   isLinkedinPath,
+  isTiktokPath,
   isTwitterPath,
   linkedinPath,
+  tiktokPath,
   socialPath,
   studioPath,
   twitterPath,
@@ -31,10 +33,13 @@ export default function SidebarGrowthNav({ projectKey }: { projectKey: string | 
   const showStudio = can('studio', 'read');
   const showTwitter = can('twitter', 'read');
   const showLinkedin = can('linkedin', 'read');
-  if (!showSocial && !showTwitter && !showLinkedin && !showCompetitors && !showStudio && !isGod)
-    return null;
+  const showTiktok = can('tiktok', 'read');
+  const showAny =
+    showSocial || showTwitter || showLinkedin || showTiktok || showCompetitors || showStudio;
+  if (!showAny && !isGod) return null;
   const onTwitter = isTwitterPath(pathname);
   const onLinkedin = isLinkedinPath(pathname);
+  const onTiktok = isTiktokPath(pathname);
 
   return (
     <SidebarGroup>
@@ -46,7 +51,7 @@ export default function SidebarGrowthNav({ projectKey }: { projectKey: string | 
               href={projectKey ? socialPath(projectKey) : '#'}
               icon={Instagram}
               label="Social"
-              active={pathname.includes('/social') && !onTwitter && !onLinkedin}
+              active={pathname.includes('/social') && !onTwitter && !onLinkedin && !onTiktok}
               disabled={!projectKey}
             />
           )}
@@ -56,6 +61,15 @@ export default function SidebarGrowthNav({ projectKey }: { projectKey: string | 
               icon={Twitter}
               label="Twitter"
               active={onTwitter}
+              disabled={!projectKey}
+            />
+          )}
+          {showTiktok && (
+            <SidebarNavItem
+              href={projectKey ? tiktokPath(projectKey) : '#'}
+              icon={Clapperboard}
+              label="TikTok"
+              active={onTiktok}
               disabled={!projectKey}
             />
           )}

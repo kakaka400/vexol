@@ -2421,3 +2421,82 @@ export const linkedinPost = pgTable(
     ),
   ],
 );
+
+// A reusable prompt for a TikTok animation, kept in the TikTok library.
+export const tiktokTemplate = pgTable(
+  'tiktok_template',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    prompt: text('prompt').notNull(),
+    colors: jsonb('colors').$type<string[]>().notNull().default([]),
+    style: text('style').notNull().default(''),
+    durationSeconds: integer('duration_seconds').notNull().default(15),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('tiktok_template_project_idx').on(t.projectId, t.updatedAt.desc())],
+);
+
+// One TikTok video in the making: the prompt the agent renders from, the video it
+// produced and the caption it goes out with.
+export const tiktokDraft = pgTable(
+  'tiktok_draft',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    templateId: uuid('template_id').references(() => tiktokTemplate.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    prompt: text('prompt').notNull(),
+    colors: jsonb('colors').$type<string[]>().notNull().default([]),
+    style: text('style').notNull().default(''),
+    durationSeconds: integer('duration_seconds').notNull().default(15),
+    caption: text('caption').notNull().default(''),
+    videoUrl: text('video_url'),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('tiktok_draft_project_idx').on(t.projectId, t.updatedAt.desc())],
+);
+
+// A TikTok draft handed to Buffer. `unknown` means the request went out and no
+// answer came back; a refresh looks the post up in Buffer.
+export const tiktokPost = pgTable(
+  'tiktok_post',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    draftId: uuid('draft_id').references(() => tiktokDraft.id, { onDelete: 'set null' }),
+    idempotencyKey: text('idempotency_key').notNull(),
+    caption: text('caption').notNull(),
+    videoUrl: text('video_url').notNull(),
+    channelId: text('channel_id').notNull(),
+    channelName: text('channel_name'),
+    mode: text('mode').notNull(),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+    status: text('status').notNull().default('pending'),
+    bufferPostId: text('buffer_post_id'),
+    platformPostUrl: text('platform_post_url'),
+    lastError: text('last_error'),
+    createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('tiktok_post_idempotency_unique').on(t.projectId, t.idempotencyKey),
+    index('tiktok_post_project_idx').on(t.projectId, t.createdAt.desc()),
+    check('tiktok_post_mode_check', sql`${t.mode} IN ('now', 'schedule')`),
+    check(
+      'tiktok_post_status_check',
+      sql`${t.status} IN ('pending', 'unknown', 'scheduled', 'published', 'failed')`,
+    ),
+  ],
+);

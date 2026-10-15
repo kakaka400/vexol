@@ -34,6 +34,7 @@ export const PERMISSION_RESOURCES = [
   'twitter',
   'twitter_publish',
   'linkedin',
+  'tiktok',
   'phone',
   'servers',
   'mail',
